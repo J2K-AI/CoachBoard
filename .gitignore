@@ -1,0 +1,22 @@
+# Dependencias y salidas de compilación: nunca se suben al repositorio,
+# las genera la integración continua.
+node_modules/
+tests/capturas/
+entrega/
+
+# Gradle y Android
+.gradle/
+build/
+local.properties
+
+# Los APK los produce la CI; el de la carpeta apk/ ya estaba versionado
+# y se conserva con la excepción de más abajo.
+*.apk
+*.aab
+!apk/*.apk
+
+# Editores y sistema
+.idea/
+*.iml
+.DS_Store
+Thumbs.db

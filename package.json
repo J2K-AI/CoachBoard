@@ -1,0 +1,20 @@
+{
+  "name": "coachboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CoachBoard: herramientas de construccion y pruebas de la aplicacion web",
+  "type": "module",
+  "scripts": {
+    "build:single": "node tools/build-single-file.mjs",
+    "check:sync": "node tools/build-single-file.mjs --check",
+    "check:syntax": "node tools/check-syntax.mjs",
+    "test": "node tests/run.mjs",
+    "verify": "npm run check:syntax && npm run check:sync && npm test"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

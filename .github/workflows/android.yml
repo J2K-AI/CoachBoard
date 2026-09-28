@@ -1,0 +1,85 @@
+name: APK de Android
+
+# Compila el APK en cada cambio del proyecto Android y lo deja como
+# artefacto descargable. Con esto ya no hace falta compilar en local y
+# subir el .apk a mano.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'CoachBoard-Android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'CoachBoard-Android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+# Si se empuja dos veces seguidas, la compilación anterior se cancela.
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compilar:
+    name: Compilar APK de depuración
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    defaults:
+      run:
+        working-directory: CoachBoard-Android/CoachBoard
+
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Preparar el SDK de Android
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+      - name: Preparar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # El jar del wrapper es oficial; se puede poner en true para
+          # que Gradle compruebe además su firma en cada ejecución.
+          validate-wrappers: false
+
+      - name: Dar permiso de ejecución al wrapper
+        run: chmod +x gradlew
+
+      - name: Compilar
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Renombrar el APK con el número de compilación
+        run: |
+          cd app/build/outputs/apk/debug
+          mv app-debug.apk "CoachBoard-debug-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}.apk"
+
+      - name: Guardar el APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoachBoard-APK
+          path: CoachBoard-Android/CoachBoard/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Guardar el informe si algo falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informes-gradle
+          path: CoachBoard-Android/CoachBoard/app/build/reports/
+          retention-days: 7
+          if-no-files-found: ignore

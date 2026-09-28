@@ -1,0 +1,72 @@
+name: Aplicación web
+
+# Comprueba la parte que de verdad contiene la lógica de CoachBoard:
+# los archivos de assets. Hace tres cosas:
+#
+#   1. Comprobaciones estáticas (sintaxis, enlaces, referencias entre
+#      módulos e identificadores del DOM).
+#   2. Que CoachBoard.html esté regenerado a partir de los assets: si no,
+#      el repositorio tendría dos versiones distintas de la misma app.
+#   3. Las pruebas de navegador: partido, asistencia, informes, copias
+#      de seguridad y la rotación de piezas en la pizarra.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'CoachBoard-Android/CoachBoard/app/src/main/assets/**'
+      - 'CoachBoard.html'
+      - 'tests/**'
+      - 'tools/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/web.yml'
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    name: Comprobar y probar
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Instalar Chromium para las pruebas
+        run: npx playwright install --with-deps chromium
+
+      - name: Comprobaciones estáticas
+        run: npm run check:syntax
+
+      - name: CoachBoard.html está al día
+        run: npm run check:sync
+
+      - name: Pruebas de navegador
+        run: npm test
+
+      - name: Guardar capturas de los fallos
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas-de-fallo
+          path: tests/capturas/
+          retention-days: 7
+          if-no-files-found: ignore

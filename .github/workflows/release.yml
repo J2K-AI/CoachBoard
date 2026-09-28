@@ -1,0 +1,121 @@
+name: Publicar versión
+
+# Al etiquetar un commit (por ejemplo  git tag v1.1  &&  git push --tags)
+# compila el APK, pasa las pruebas y publica una release de GitHub con
+# el APK y los archivos para PC adjuntos.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      etiqueta:
+        description: 'Nombre de la versión (por ejemplo v1.1)'
+        required: true
+
+permissions:
+  contents: write        # necesario para crear la release
+
+jobs:
+  publicar:
+    name: Compilar y publicar
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Fijar el nombre de la versión
+        id: version
+        env:
+          ENTRADA: ${{ github.event.inputs.etiqueta }}
+        run: |
+          if [ -n "$ENTRADA" ]; then
+            echo "nombre=$ENTRADA" >> "$GITHUB_OUTPUT"
+          else
+            echo "nombre=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --- comprobar la aplicación web antes de publicar nada ---
+      - name: Preparar Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Instalar Chromium para las pruebas
+        run: npx playwright install --with-deps chromium
+
+      - name: Comprobar y probar
+        run: npm run verify
+
+      # --- compilar el APK ---
+      - name: Preparar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Preparar el SDK de Android
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+      - name: Preparar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+
+      - name: Compilar el APK
+        working-directory: CoachBoard-Android/CoachBoard
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Reunir los archivos de la versión
+        env:
+          VERSION: ${{ steps.version.outputs.nombre }}
+        run: |
+          mkdir -p entrega
+          cp CoachBoard-Android/CoachBoard/app/build/outputs/apk/debug/app-debug.apk \
+             "entrega/CoachBoard-$VERSION.apk"
+          cp CoachBoard.html CoachBoard.ps1 entrega/
+          ls -la entrega
+
+      - name: Escribir las notas de la versión
+        run: |
+          cat > notas.md <<'FIN'
+          ### Instalar en el móvil
+
+          Descarga el `.apk` y ábrelo en el teléfono. La primera vez Android
+          pedirá permiso para instalar aplicaciones de origen desconocido.
+
+          Es una compilación de depuración, firmada con la clave de depuración
+          de Android: se instala sin problema, pero no vale para publicar en
+          Google Play.
+
+          ### Probar en el PC
+
+          Descarga `CoachBoard.html` y `CoachBoard.ps1` en la misma carpeta y
+          ejecuta el script con PowerShell. También puedes abrir el HTML con
+          doble clic.
+
+          ### Datos
+
+          Los datos se guardan en el propio dispositivo. Antes de actualizar,
+          haz una copia desde Ajustes → Descargar copia de seguridad.
+          FIN
+
+      - name: Publicar la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.nombre }}
+        run: |
+          gh release create "$VERSION" \
+            --title "CoachBoard $VERSION" \
+            --notes-file notas.md \
+            entrega/*
