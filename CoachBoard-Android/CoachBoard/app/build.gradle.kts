@@ -11,8 +11,10 @@ android {
         applicationId = "com.entrenador.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // En local se usan 1 / "1.0". El workflow de release los sobrescribe
+        // con -PappVersionCode y -PappVersionName a partir del tag (v1.2.3).
+        versionCode = (project.findProperty("appVersionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("appVersionName") as String?) ?: "1.0"
     }
 
     buildTypes {
