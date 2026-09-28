@@ -17,7 +17,7 @@ concurrency:
 
 env:
   PROJECT_DIR: CoachBoard-Android/CoachBoard
-  GRADLE_VERSION: "8.9" # la del gradle-wrapper.properties (el repo no incluye gradlew)
+  GRADLE_VERSION: "8.9" # la misma que gradle-wrapper.properties
 
 jobs:
   release:
@@ -26,6 +26,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      # No se publica una version que no pase las pruebas.
+      - name: Configurar Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Instalar Chromium para las pruebas
+        run: npx playwright install --with-deps chromium
+
+      - name: Comprobar la aplicacion web
+        run: npm run verify
 
       - name: Configurar Java 17
         uses: actions/setup-java@v5
@@ -96,6 +112,8 @@ jobs:
           if [ -z "$APK" ]; then echo "::error::No se encontró el APK en $SRC_DIR" && exit 1; fi
           mkdir -p dist
           cp "$APK" "dist/CoachBoard-${GITHUB_REF_NAME}${SUFFIX}.apk"
+          # La version para PC viaja en la misma release.
+          cp CoachBoard.html CoachBoard.ps1 dist/
           ls -la dist
 
       - name: Publicar release en GitHub
@@ -104,7 +122,7 @@ jobs:
           name: CoachBoard ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
-          files: dist/*.apk
+          files: dist/*
 
       - name: Borrar keystore
         if: always()

@@ -3,6 +3,7 @@
 node_modules/
 tests/capturas/
 entrega/
+dist/
 
 # Gradle y Android
 .gradle/
