@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0F1115">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>CoachBoard</title>
+
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/screens.css">
+<link rel="stylesheet" href="css/print.css">
+</head>
+<body>
+
+<div id="banner" hidden></div>
+
+<!-- Barra lateral: solo aparece en tablet y pantallas anchas -->
+<nav id="rail"></nav>
+
+<div id="app">
+
+  <header id="topbar">
+    <span class="brandmark">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M12 4.5v15"/><circle cx="12" cy="12" r="2.4"/></svg>
+    </span>
+    <span class="titles">
+      <span class="t1" id="topTitle">CoachBoard</span>
+      <span class="t2" id="topSub">Mi equipo</span>
+    </span>
+    <button class="act" id="btnSettings" aria-label="Ajustes">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1 2 2 0 1 1-4 0 1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 15a2 2 0 1 1 0-4 1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9.6 4.4a2 2 0 1 1 4 0A1.6 1.6 0 0 0 16.3 5.5l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.6 1.6 0 0 0 20.2 11a2 2 0 1 1 0 4"/></svg>
+    </button>
+  </header>
+
+  <main>
+  <div class="viewwrap">
+
+    <!-- ===================== INICIO ===================== -->
+    <section class="view on" id="v-home">
+      <div id="homeBody"></div>
+    </section>
+
+    <!-- ===================== PLANTILLA ===================== -->
+    <section class="view" id="v-squad">
+      <div id="squadBody"></div>
+      <button class="fab" onclick="CB.squad.editar(null)" aria-label="Añadir jugador">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Añadir jugador
+      </button>
+    </section>
+
+    <!-- ===================== CALENDARIO ===================== -->
+    <section class="view" id="v-agenda">
+      <div id="agendaBody"></div>
+      <button class="fab" onclick="CB.agenda.editar(null)" aria-label="Nueva sesión">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nueva sesión
+      </button>
+    </section>
+
+    <!-- ===================== ASISTENCIA ===================== -->
+    <section class="view" id="v-att">
+      <div id="attBody"></div>
+    </section>
+
+    <!-- ===================== PARTIDO ===================== -->
+    <section class="view" id="v-match">
+      <div id="matchBody"></div>
+    </section>
+
+    <!-- ===================== ENTRENAMIENTOS ===================== -->
+    <section class="view" id="v-board">
+      <div class="stage" id="drillStage">
+        <canvas id="cDrill"></canvas>
+
+        <!-- Barra contextual de la pieza seleccionada -->
+        <div class="ctxbar hidden" id="drillCtx">
+          <button id="ctxRotL" aria-label="Girar 15 grados a la izquierda">
+            <svg viewBox="0 0 24 24"><path d="M3.5 8.5h6v-6"/><path d="M3.9 15a8.5 8.5 0 1 0 1.3-7.1"/></svg>
+          </button>
+          <button id="ctxRotR" aria-label="Girar 15 grados a la derecha">
+            <svg viewBox="0 0 24 24"><path d="M20.5 8.5h-6v-6"/><path d="M20.1 15A8.5 8.5 0 1 1 18.8 7.9"/></svg>
+          </button>
+          <span class="sep"></span>
+          <button id="ctxDup" aria-label="Duplicar">
+            <svg viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 5.5v-1a1 1 0 0 0-1-1h-10a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h1"/></svg>
+          </button>
+          <button id="ctxDel" class="danger" aria-label="Eliminar">
+            <svg viewBox="0 0 24 24"><path d="M4 6.5h16M9.5 6.5V4.8a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1.7M6.5 6.5 7.4 20a1 1 0 0 0 1 .9h7.2a1 1 0 0 0 1-.9l.9-13.5"/></svg>
+          </button>
+        </div>
+
+        <div class="anglepill hidden" id="drillPill">0°</div>
+      </div>
+
+      <div class="toolbar" id="drillTools"></div>
+
+      <div class="row-x mt1" style="justify-content:space-between">
+        <div class="swatches" id="drillColors"></div>
+        <div class="row-x" style="gap:6px">
+          <button class="btn sm ghost" onclick="CB.drills.zoom(1.35)" aria-label="Acercar">＋</button>
+          <button class="btn sm ghost" onclick="CB.drills.zoom(0.74)" aria-label="Alejar">－</button>
+        </div>
+      </div>
+
+      <div class="seg mt1" id="drillModes"></div>
+
+      <div id="drillBody" class="mt2"></div>
+    </section>
+
+    <!-- ===================== TÁCTICAS ===================== -->
+    <section class="view" id="v-tac">
+      <div class="stage"><canvas id="cTac"></canvas></div>
+
+      <div>
+        <div class="grid-2 mt2">
+          <div>
+            <label class="f">Mi equipo</label>
+            <div class="formbar">
+              <select id="tacForm1"></select>
+              <button class="btn sm info" onclick="CB.tactics.aplicar('A')">Colocar</button>
+            </div>
+          </div>
+          <div>
+            <label class="f">Rival</label>
+            <div class="formbar">
+              <select id="tacForm2"></select>
+              <button class="btn sm danger" onclick="CB.tactics.aplicar('B')">Colocar</button>
+            </div>
+          </div>
+        </div>
+        <div id="tacBody" class="mt2"></div>
+      </div>
+    </section>
+
+  </div>
+  </main>
+</div>
+
+<!-- Navegación inferior (teléfono) -->
+<nav id="nav"></nav>
+
+<!-- Hoja modal -->
+<div class="hidden" id="sheet">
+  <div class="sheetbox">
+    <div class="grip"></div>
+    <h3 id="sheetTitle"></h3>
+    <div id="sheetBody"></div>
+    <div class="sheetfoot" id="sheetFoot"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="printArea"></div>
+
+<script src="js/core/util.js"></script>
+<script src="js/core/store.js"></script>
+<script src="js/core/models.js"></script>
+<script src="js/core/pitch.js"></script>
+<script src="js/core/stats.js"></script>
+<script src="js/core/scene.js"></script>
+<script src="js/ui/shell.js"></script>
+<script src="js/features/dashboard.js"></script>
+<script src="js/features/squad.js"></script>
+<script src="js/features/agenda.js"></script>
+<script src="js/features/attendance.js"></script>
+<script src="js/features/match.js"></script>
+<script src="js/features/drills.js"></script>
+<script src="js/features/tactics.js"></script>
+<script src="js/features/reports.js"></script>
+<script src="js/features/settings.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

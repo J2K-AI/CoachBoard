@@ -1,0 +1,64 @@
+/* =============================================================
+   CoachBoard · documentos imprimibles (acta y ficha)
+   Se mantiene la maqueta A4 ya validada: al imprimir se oculta
+   la aplicación y solo queda #printArea.
+   ============================================================= */
+#printArea{ display:none; }
+
+@media print{
+  html,body{ background:#fff !important; height:auto; }
+  body > *{ display:none !important; }
+  #printArea{ display:block !important; }
+  @page{ size:A4; margin:15mm 14mm; }
+}
+
+#printArea .acta{
+  color:#111; font-family:Georgia,"Times New Roman",serif;
+  font-size:10.5pt; line-height:1.45;
+}
+#printArea .ah{ border-bottom:2.5px solid #111; padding-bottom:6px; margin-bottom:2px; }
+#printArea .ah-t{
+  font-size:19pt; letter-spacing:.16em; font-weight:700;
+  font-family:system-ui,sans-serif;
+}
+#printArea .ah-s{
+  font-size:8.5pt; letter-spacing:.1em; text-transform:uppercase; color:#444;
+  font-family:system-ui,sans-serif; margin-top:3px;
+}
+#printArea .ares{
+  display:flex; align-items:center; justify-content:center; gap:22px; margin:16px 0 20px;
+}
+#printArea .ares .tm{ font-size:13pt; font-weight:700; width:38%; font-family:system-ui,sans-serif; }
+#printArea .ares .tm.r{ text-align:right; }
+#printArea .ares .sc{
+  font-size:30pt; font-weight:700; font-variant-numeric:tabular-nums;
+  letter-spacing:.06em; font-family:system-ui,sans-serif;
+}
+#printArea h4{
+  font-size:8.5pt; letter-spacing:.19em; text-transform:uppercase;
+  font-family:system-ui,sans-serif;
+  border-bottom:1px solid #111; padding-bottom:3px; margin:18px 0 7px; font-weight:700;
+}
+#printArea table{ width:100%; border-collapse:collapse; font-size:9.5pt; }
+#printArea th{
+  text-align:left; font-family:system-ui,sans-serif; font-size:7.5pt; letter-spacing:.12em;
+  text-transform:uppercase; color:#333; border-bottom:1px solid #999; padding:3px 5px;
+}
+#printArea td{ padding:3px 5px; border-bottom:1px solid #DDD; vertical-align:top; }
+#printArea td.n,#printArea th.n{
+  text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+#printArea tr.start td{ background:#F2F2F2; }
+#printArea .chron{ column-count:2; column-gap:18px; font-size:9pt; }
+#printArea .chron div{ break-inside:avoid; padding:1.5px 0; }
+#printArea .chron b{ font-variant-numeric:tabular-nums; }
+#printArea .foot{
+  margin-top:22px; border-top:1px solid #BBB; padding-top:6px; font-size:7.5pt;
+  color:#555; font-family:system-ui,sans-serif; letter-spacing:.06em;
+  display:flex; justify-content:space-between;
+}
+#printArea .sig{ margin-top:26px; display:flex; gap:40px; }
+#printArea .sig div{
+  flex:1; border-top:1px solid #111; padding-top:4px; font-size:8pt;
+  font-family:system-ui,sans-serif; color:#444;
+}

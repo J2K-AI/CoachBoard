@@ -1,0 +1,723 @@
+/* =============================================================
+   CoachBoard · features/match.js
+   Partido en directo. Pensado para usarse de pie, en el banquillo:
+   primero se pulsa la acción y después se elige el jugador.
+   ============================================================= */
+(function () {
+  "use strict";
+  var U = window.CB.util;
+  var S = window.CB.store;
+  var M = window.CB.models;
+
+  var evId = null;
+  var timer = null;
+  var panelActivo = "directo";   // directo | plantilla
+  var golPendiente = null;       // goleador a la espera de asistencia
+
+  function m() { return window.DB.match; }
+  function partidos() { return S.evSorted().filter(S.isMatch).reverse(); }
+
+  function seleccionar(id) {
+    evId = id;
+    render();
+  }
+
+  function elegirPartidoPorDefecto() {
+    var lista = partidos();
+    if (!lista.length) { evId = null; return; }
+    if (m() && lista.some(function (e) { return e.id === m().ev; })) { evId = m().ev; return; }
+    if (evId && lista.some(function (e) { return e.id === evId; })) return;
+    var hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    var futuro = lista.slice().reverse().filter(function (e) { return S.evDate(e) >= hoy; })[0];
+    evId = (futuro || lista[0]).id;
+  }
+
+  /* ---------------------------------------------------------
+     Reloj
+     --------------------------------------------------------- */
+  var BASE = M.PERIODO_BASE;
+  function minuto() {
+    return m() ? Math.floor((BASE[m().per] + m().seg) / 60) + 1 : 0;
+  }
+  function arrancar() {
+    var mt = m();
+    mt.run = true;
+    clearInterval(timer);
+    timer = setInterval(function () {
+      var x = m();
+      if (!x) { clearInterval(timer); return; }
+      x.seg++;
+      x.campo.forEach(function (id) { x.t[id] = (x.t[id] || 0) + 1; });
+      var c = U.$("mClock");
+      if (c) c.textContent = U.mmss(BASE[x.per] + x.seg);
+      if (x.seg % 10 === 0 && panelActivo === "plantilla") pintarPlantilla();
+      if (x.seg % 15 === 0) S.save();
+    }, 1000);
+  }
+  function parar() {
+    clearInterval(timer);
+    timer = null;
+    if (m()) m().run = false;
+  }
+  function alternarReloj() {
+    var mt = m();
+    if (!mt) { U.toast("Convoca primero"); return; }
+    if (mt.run) {
+      parar();
+      log("Reloj parado", "periodo");
+    } else {
+      if (!mt.started) {
+        if (mt.campo.length < 11 &&
+            !window.CB.shell.confirmar("Solo hay " + mt.campo.length + " jugadores en el campo. ¿Empezar igualmente?")) return;
+        mt.started = true;
+        mt.titulares = mt.campo.slice();
+        log("Comienza el partido", "periodo");
+      } else {
+        log("Se reanuda el juego", "periodo");
+      }
+      arrancar();
+    }
+    S.save();
+    render();
+  }
+  function siguientePeriodo() {
+    var mt = m();
+    if (!mt) return;
+    if (mt.per >= 3) { U.toast("Último periodo"); return; }
+    parar();
+    log("Fin de " + M.PERIODOS[mt.per], "periodo");
+    mt.per++;
+    mt.seg = 0;
+    S.save();
+    render();
+  }
+
+  /* ---------------------------------------------------------
+     Crónica
+     --------------------------------------------------------- */
+  function log(txt, kind, side, sub) {
+    var mt = m();
+    if (!mt) return;
+    mt.log.unshift({ m: minuto(), t: txt, k: kind || "nota", s: side || "a", sub: sub || "" });
+  }
+  function nombre(id) {
+    var j = S.jug(id);
+    return j ? (j.dorsal + " " + j.nombre) : "?";
+  }
+  function icono(k) {
+    switch (k) {
+      case "gol": return '<span class="ic"><i class="i-ball"></i></span>';
+      case "golcon": return '<span class="ic"><i class="i-ball con"></i></span>';
+      case "amarilla": return '<span class="ic"><i class="i-card y"></i></span>';
+      case "doble": return '<span class="ic"><i class="i-card yr"></i></span>';
+      case "roja": return '<span class="ic"><i class="i-card r"></i></span>';
+      case "cambio": return '<span class="ic i-swap">&#8593;<span>&#8595;</span></span>';
+      case "asis": return '<span class="ic"><i class="i-as">A</i></span>';
+      case "falta": return '<span class="ic"><i class="i-foul"></i></span>';
+      default: return '<span class="ic"><i class="i-note"></i></span>';
+    }
+  }
+
+  /* ---------------------------------------------------------
+     Pintado
+     --------------------------------------------------------- */
+  function render() {
+    elegirPartidoPorDefecto();
+    var e = evId ? S.ev(evId) : null;
+    var mt = m();
+    var hayActa = e && window.DB.partidos.some(function (p) { return p.ev === e.id; });
+
+    var h = "";
+
+    h += '<div class="row-x" style="gap:8px">' +
+      '<select id="mSel" onchange="CB.match.cambiar(this.value)" style="flex:1">' +
+      (partidos().length
+        ? partidos().map(function (x) {
+            return '<option value="' + x.id + '" ' + (x.id === evId ? "selected" : "") + '>' +
+              U.fmtDate(x.fecha) + " · " + U.esc(x.rival || "sin rival") + '</option>';
+          }).join("")
+        : '<option value="">Programa antes un partido</option>') +
+      '</select></div>';
+
+    if (!e) {
+      U.set("matchBody", h + '<div class="empty mt3"><b>Sin partidos</b>' +
+        'Programa un encuentro en el calendario para poder dirigirlo desde aquí.' +
+        '<div class="mt3"><button class="btn sm pri" onclick="CB.agenda.editar(null,\'Partido\')">Programar partido</button></div></div>');
+      return;
+    }
+
+    var local = e.cond !== "Visitante";
+    var nosotros = S.club();
+    var rival = e.rival || "Rival";
+    var izq = local ? nosotros : rival;
+    var der = local ? rival : nosotros;
+    var gi = mt ? (local ? mt.gf : mt.gc) : 0;
+    var gd = mt ? (local ? mt.gc : mt.gf) : 0;
+
+    /* --- marcador --- */
+    h += '<div class="board mt2">' +
+      '<div class="teams"><div class="tn">' + U.esc(izq) + '</div><div class="tn"></div>' +
+      '<div class="tn">' + U.esc(der) + '</div></div>' +
+      '<div class="score num"><span>' + gi + '</span><span class="sep">–</span><span>' + gd + '</span></div>' +
+      '<div class="clock num ' + (mt && mt.run ? "" : "stop") + '" id="mClock">' +
+        (mt ? U.mmss(BASE[mt.per] + mt.seg) : "00:00") + '</div>' +
+      '<div class="per">' + (mt && mt.run ? '<span class="live"></span>' : "") +
+        (mt ? U.esc(M.PERIODOS[mt.per]) + " · " + (mt.run ? "en juego" : mt.started ? "pausado" : "detenido")
+            : "sin convocatoria") + '</div>' +
+      '<div class="scoreadj">' +
+        '<button onclick="CB.match.corregir(-1,0)" aria-label="Quitar gol nuestro">−</button>' +
+        '<span class="eyebrow">corregir</span>' +
+        '<button onclick="CB.match.corregir(0,-1)" aria-label="Quitar gol rival">−</button>' +
+      '</div></div>';
+
+    if (!mt) {
+      h += '<div class="grid-2 mt2">' +
+        '<button class="btn pri lg" onclick="CB.match.convocar()">' + U.svg("users2") + 'Convocar</button>' +
+        (hayActa ? '<button class="btn lg" onclick="CB.match.recuperarActa()">' + U.svg("undo") + 'Reanudar acta</button>'
+                 : '<button class="btn lg" onclick="CB.agenda.editar(\'' + e.id + '\')">' + U.svg("pencil") + 'Editar partido</button>') +
+        '</div>';
+      h += '<div class="empty mt3"><b>Prepara la convocatoria</b>' +
+        'Elige a los citados y después coloca el once inicial. El cronómetro cuenta los minutos de cada jugador.</div>';
+      U.set("matchBody", h);
+      return;
+    }
+
+    /* --- control del reloj --- */
+    h += '<button class="btn ' + (mt.run ? "warn" : "pri") + ' lg wide mt2" onclick="CB.match.reloj()">' +
+      U.svg(mt.run ? "pause" : "play") + (mt.run ? "Pausar" : mt.started ? "Reanudar" : "Iniciar partido") + '</button>';
+
+    /* --- acciones rápidas --- */
+    h += '<div class="grid-4 mt2">' +
+      accion("ball", "Gol", "CB.match.gol()", "pri") +
+      accion("swap", "Cambio", "CB.match.cambio()", "info") +
+      accion("card", "Amarilla", "CB.match.tarjeta('y')", "warn") +
+      accion("card", "Roja", "CB.match.tarjeta('r')", "danger") +
+      '</div>';
+
+    h += '<div class="grid-4 mt1">' +
+      accion("ball", "Gol rival", "CB.match.golRival()", "") +
+      accion("t_player", "Asist.", "CB.match.asistencia()", "") +
+      accion("whistle", "Falta", "CB.match.falta()", "") +
+      accion("note", "Nota", "CB.match.nota()", "") +
+      '</div>';
+
+    h += '<div class="seg mt2">' +
+      '<button class="' + (panelActivo === "directo" ? "on" : "") + '" onclick="CB.match.pestana(\'directo\')">En directo</button>' +
+      '<button class="' + (panelActivo === "plantilla" ? "on" : "") + '" onclick="CB.match.pestana(\'plantilla\')">Plantilla y minutos</button>' +
+      '</div>';
+
+    h += '<div id="mPanel" class="mt2"></div>';
+
+    h += '<div class="grid-2 mt3">' +
+      '<button class="btn sm" onclick="CB.match.periodo()">' + U.svg("clock") + 'Siguiente parte</button>' +
+      '<button class="btn sm" onclick="CB.match.alineacion()">' + U.svg("users2") + 'Alineación</button>' +
+      '</div>';
+    h += '<div class="grid-2 mt1">' +
+      '<button class="btn sm ghost" onclick="CB.match.convocar()">Convocatoria</button>' +
+      '<button class="btn sm ghost" onclick="CB.match.finalizar()">' + U.svg("flag") + 'Finalizar acta</button>' +
+      '</div>';
+    if (hayActa) {
+      h += '<button class="btn sm wide mt1" onclick="CB.match.actaPdf()">' + U.svg("pdf") + 'Acta en PDF</button>';
+    }
+
+    U.set("matchBody", h);
+    pintarPanel();
+  }
+
+  function accion(icon, label, fn, cls) {
+    return '<button class="btn stack ' + (cls || "") + '" onclick="' + fn + '">' +
+      U.svg(icon) + '<span class="lbl">' + label + '</span></button>';
+  }
+
+  function pestana(p) { panelActivo = p; render(); }
+
+  function pintarPanel() {
+    if (panelActivo === "plantilla") pintarPlantilla();
+    else pintarDirecto();
+  }
+
+  function pintarDirecto() {
+    var mt = m();
+    if (!mt || !mt.log.length) {
+      U.set("mPanel", '<div class="empty">' +
+        (mt ? '<b>Aquí verás el partido</b>Goles, tarjetas y cambios se apilan con su minuto en cuanto los anotes.'
+            : "Convoca a los jugadores para empezar.") + '</div>');
+      return;
+    }
+    var html = '<div class="tl">' + mt.log.map(function (l) {
+      if (l.k === "periodo") {
+        return '<div class="per-sep"><span>' + U.esc(l.t) + '</span></div>';
+      }
+      var caja = '<div class="box">' + icono(l.k) + '<div class="tx"><b>' + U.esc(l.t) + '</b>' +
+        (l.sub ? '<small>' + U.esc(l.sub) + '</small>' : "") + '</div></div>';
+      return '<div class="ev ' + (l.s === "b" ? "b" : "") + '">' +
+        '<div class="side">' + caja + '</div>' +
+        '<div class="min">' + l.m + "'" + '</div>' +
+        '<div class="pad"></div></div>';
+    }).join("") + '</div>';
+    U.set("mPanel", html);
+  }
+
+  function pintarPlantilla() {
+    var mt = m();
+    if (!mt) return;
+    var html = '<div class="section" style="margin-top:0"><span class="eyebrow">En el campo</span>' +
+      '<span class="link">' + mt.campo.length + '/11</span></div>';
+    html += mt.campo.length
+      ? '<div class="plist">' + mt.campo.map(filaJugador).join("") + '</div>'
+      : '<div class="empty">Coloca el once con el botón Alineación.</div>';
+    html += '<div class="section"><span class="eyebrow">Banquillo</span>' +
+      '<span class="link">' + mt.banq.length + '</span></div>';
+    html += mt.banq.length
+      ? '<div class="plist">' + mt.banq.map(filaJugador).join("") + '</div>'
+      : '<div class="empty">Banquillo vacío.</div>';
+
+    var fuera = mt.conv.filter(function (id) {
+      return mt.campo.indexOf(id) < 0 && mt.banq.indexOf(id) < 0;
+    });
+    if (fuera.length) {
+      html += '<div class="section"><span class="eyebrow">Fuera del campo</span></div>' +
+        '<div class="plist">' + fuera.map(filaJugador).join("") + '</div>';
+    }
+    U.set("mPanel", html);
+  }
+
+  function filaJugador(id) {
+    var mt = m(), j = S.jug(id);
+    if (!j) return "";
+    var marcas = "";
+    for (var i = 0; i < (mt.ta[id] || 0); i++) marcas += '<span class="mk y"></span>';
+    if (mt.tr[id]) marcas += '<span class="mk r"></span>';
+    if (mt.gol[id]) marcas += '<span class="mk txt g">' + mt.gol[id] + 'G</span>';
+    if (mt.asi && mt.asi[id]) marcas += '<span class="mk txt a">' + mt.asi[id] + 'A</span>';
+    if (mt.fal && mt.fal[id]) marcas += '<span class="mk txt f">' + mt.fal[id] + 'F</span>';
+    return '<div class="prow ' + (mt.st[id] === "Expulsado" ? "muted" : "") + '">' +
+      '<span class="num-badge sm">' + (j.dorsal || "–") + '</span>' +
+      '<div class="pmain"><div class="nm">' + U.esc(j.nombre) + '</div>' +
+      '<div class="sub">' + U.esc(mt.st[id] || "") + '</div></div>' +
+      '<div class="marks">' + marcas + '</div>' +
+      '<div class="pend"><div class="big">' + Math.floor((mt.t[id] || 0) / 60) + "'" + '</div></div></div>';
+  }
+
+  /* ---------------------------------------------------------
+     Convocatoria y alineación
+     --------------------------------------------------------- */
+  function convocar() {
+    if (!evId) { U.toast("Programa antes un partido"); return; }
+    if (!window.DB.jugadores.length) { U.toast("No hay plantilla"); return; }
+    var previos = (m() && m().ev === evId) ? m().conv : window.DB.jugadores.map(function (j) { return j.id; });
+    var arr = window.DB.jugadores.slice().sort(function (a, b) { return (a.dorsal || 99) - (b.dorsal || 99); });
+
+    var body = arr.map(function (j) {
+      return '<label class="pick"><input type="checkbox" value="' + j.id + '" ' +
+        (previos.indexOf(j.id) >= 0 ? "checked" : "") + '>' +
+        '<span class="num-badge sm">' + (j.dorsal || "–") + '</span>' +
+        '<span class="pmain"><span class="nm">' + U.esc(j.nombre) + '</span>' +
+        '<span class="sub">' + U.esc(j.pos) + (j.estado !== "Disponible" ? " · " + U.esc(j.estado) : "") + '</span></span></label>';
+    }).join("");
+
+    window.CB.shell.openSheet("Convocatoria", body, [
+      { text: "Cancelar", cls: "ghost", fn: window.CB.shell.closeSheet },
+      {
+        text: "Convocar", cls: "pri", fn: function () {
+          var ids = [].slice.call(document.querySelectorAll("#sheetBody input:checked"))
+            .map(function (i) { return i.value; });
+          if (!ids.length) { U.toast("No has marcado a nadie"); return; }
+          nuevoPartido(evId, ids);
+          window.CB.shell.closeSheet();
+        }
+      }
+    ]);
+  }
+
+  function nuevoPartido(id, ids) {
+    var mt = {
+      ev: id, conv: ids, campo: [], banq: ids.slice(),
+      per: 0, seg: 0, run: false, started: false,
+      gf: 0, gc: 0, log: [], goles: [], titulares: [],
+      t: {}, st: {}, ta: {}, tr: {}, gol: {}, asi: {}, fal: {}
+    };
+    ids.forEach(function (i) {
+      mt.t[i] = 0; mt.st[i] = "Banquillo"; mt.ta[i] = 0;
+      mt.tr[i] = 0; mt.gol[i] = 0; mt.asi[i] = 0; mt.fal[i] = 0;
+    });
+    window.DB.match = mt;
+    parar();
+    S.save();
+    render();
+    U.toast(ids.length + " convocados");
+    setTimeout(alineacion, 250);
+  }
+
+  function alineacion() {
+    var mt = m();
+    if (!mt) { U.toast("Convoca primero"); return; }
+    var body = '<p class="hint">Marca a los once que salen de inicio. El resto queda en el banquillo.</p>' +
+      mt.conv.map(function (id) {
+        var j = S.jug(id);
+        if (!j) return "";
+        return '<label class="pick"><input type="checkbox" value="' + id + '" ' +
+          (mt.campo.indexOf(id) >= 0 ? "checked" : "") + '>' +
+          '<span class="num-badge sm">' + (j.dorsal || "–") + '</span>' +
+          '<span class="pmain"><span class="nm">' + U.esc(j.nombre) + '</span>' +
+          '<span class="sub">' + U.esc(j.pos) + '</span></span></label>';
+      }).join("");
+
+    window.CB.shell.openSheet("Once inicial", body, [
+      { text: "Cancelar", cls: "ghost", fn: window.CB.shell.closeSheet },
+      {
+        text: "Confirmar", cls: "pri", fn: function () {
+          var ids = [].slice.call(document.querySelectorAll("#sheetBody input:checked"))
+            .map(function (i) { return i.value; });
+          if (ids.length > 11) { U.toast("Como mucho once jugadores"); return; }
+          mt.campo = ids;
+          mt.banq = mt.conv.filter(function (x) {
+            return ids.indexOf(x) < 0 && mt.st[x] !== "Expulsado";
+          });
+          mt.conv.forEach(function (x) {
+            if (mt.st[x] === "Expulsado") return;
+            mt.st[x] = ids.indexOf(x) >= 0 ? "En el campo" : "Banquillo";
+          });
+          if (!mt.started) mt.titulares = ids.slice();
+          S.save();
+          window.CB.shell.closeSheet();
+          render();
+        }
+      }
+    ]);
+  }
+
+  /* ---------------------------------------------------------
+     Selector de jugador reutilizable
+     --------------------------------------------------------- */
+  function elegirJugador(titulo, ids, subtitulo, onPick, extra) {
+    if (!ids.length) { U.toast("No hay jugadores disponibles"); return; }
+    var body = (subtitulo ? '<p class="hint">' + U.esc(subtitulo) + '</p>' : "") +
+      '<div class="plist">' + ids.map(function (id) {
+        var j = S.jug(id);
+        if (!j) return "";
+        var mt = m();
+        var extraTxt = mt ? Math.floor((mt.t[id] || 0) / 60) + "'" : "";
+        return '<div class="prow tap" onclick="CB.match._pick(\'' + id + '\')">' +
+          '<span class="num-badge sm">' + (j.dorsal || "–") + '</span>' +
+          '<div class="pmain"><div class="nm">' + U.esc(j.nombre) + '</div>' +
+          '<div class="sub">' + U.esc(j.pos) + '</div></div>' +
+          '<div class="pend"><div class="big">' + extraTxt + '</div></div></div>';
+      }).join("") + '</div>';
+
+    pickHandler = onPick;
+    var botones = [{ text: "Cancelar", cls: "ghost", fn: function () { pickHandler = null; window.CB.shell.closeSheet(); } }];
+    if (extra) botones.unshift({ text: extra.text, cls: "ghost", fn: extra.fn });
+    window.CB.shell.openSheet(titulo, body, botones);
+  }
+  var pickHandler = null;
+  function _pick(id) {
+    var fn = pickHandler;
+    pickHandler = null;
+    window.CB.shell.closeSheet();
+    if (fn) fn(id);
+  }
+
+  function elegirOpcion(titulo, subtitulo, opciones, onPick) {
+    var body = (subtitulo ? '<p class="hint">' + U.esc(subtitulo) + '</p>' : "") +
+      opciones.map(function (o, i) {
+        return '<button class="btn wide ' + (i === 0 ? "" : "mt1") +
+          '" onclick="CB.match._opt(' + i + ')">' + U.esc(o) + '</button>';
+      }).join("");
+    optHandler = { fn: onPick, ops: opciones };
+    window.CB.shell.openSheet(titulo, body, [
+      { text: "Cancelar", cls: "ghost", fn: function () { optHandler = null; window.CB.shell.closeSheet(); } }
+    ]);
+  }
+  var optHandler = null;
+  function _opt(i) {
+    var h = optHandler;
+    optHandler = null;
+    window.CB.shell.closeSheet();
+    if (h && h.fn) h.fn(h.ops[i]);
+  }
+
+  /* ---------------------------------------------------------
+     Acciones
+     --------------------------------------------------------- */
+  function gol() {
+    var mt = m();
+    if (!mt) { U.toast("Convoca primero"); return; }
+    var enCampo = mt.campo.slice();
+    elegirJugador("Gol · ¿quién marcó?", enCampo, "", function (id) {
+      preguntarTipoGol(id);
+    }, { text: "Sin goleador", fn: function () { window.CB.shell.closeSheet(); preguntarTipoGol(null); } });
+  }
+
+  function preguntarTipoGol(id) {
+    golPendiente = id;
+    elegirOpcion("¿Cómo fue el gol?", id ? nombre(id) : "Gol a favor", M.TIPOS_GOL, function (tipo) {
+      registrarGol(tipo);
+    });
+  }
+
+  function registrarGol(tipo) {
+    var mt = m();
+    if (!mt) return;
+    var autor = tipo === "En propia del rival" ? null : golPendiente;
+    if (autor) mt.gol[autor] = (mt.gol[autor] || 0) + 1;
+    mt.gf++;
+    mt.goles.push({ min: minuto(), eq: "A", j: autor, a: null, tipo: tipo });
+    log(autor ? nombre(autor) : "Gol a favor", "gol", "a", "Gol de " + tipo.toLowerCase());
+    S.save();
+    render();
+    if (autor && (tipo === "Jugada" || tipo === "Corner")) {
+      var cand = mt.campo.filter(function (i) { return i !== autor; });
+      if (cand.length) {
+        setTimeout(function () {
+          elegirJugador("¿Quién dio la asistencia?", cand, "", function (aid) {
+            anotarAsistencia(aid, true);
+          }, { text: "Sin asistencia", fn: function () { golPendiente = null; window.CB.shell.closeSheet(); } });
+        }, 220);
+        return;
+      }
+    }
+    golPendiente = null;
+  }
+
+  function anotarAsistencia(id, ligadaAlGol) {
+    var mt = m();
+    if (!mt) return;
+    mt.asi[id] = (mt.asi[id] || 0) + 1;
+    if (ligadaAlGol) {
+      for (var i = mt.goles.length - 1; i >= 0; i--) {
+        if (mt.goles[i].eq === "A" && mt.goles[i].j === golPendiente && !mt.goles[i].a) {
+          mt.goles[i].a = id;
+          break;
+        }
+      }
+      var g = mt.log.filter(function (l) { return l.k === "gol"; })[0];
+      if (g) g.sub = (g.sub ? g.sub + " · " : "") + "asist. " + nombre(id);
+    } else {
+      log(nombre(id), "asis", "a", "Asistencia");
+    }
+    golPendiente = null;
+    S.save();
+    render();
+  }
+
+  function asistencia() {
+    var mt = m();
+    if (!mt) return;
+    elegirJugador("Asistencia", mt.campo.concat(mt.banq), "Suma un pase de gol", function (id) {
+      anotarAsistencia(id, false);
+    });
+  }
+
+  function golRival() {
+    var mt = m();
+    if (!mt) { U.toast("Convoca primero"); return; }
+    elegirOpcion("Gol del rival", "¿Cómo encajamos?", M.TIPOS_GOL_RIVAL, function (tipo) {
+      mt.gc++;
+      mt.goles.push({ min: minuto(), eq: "B", j: null, a: null, tipo: tipo });
+      log("Gol del rival", "golcon", "b", "De " + tipo.toLowerCase());
+      S.save();
+      render();
+    });
+  }
+
+  function corregir(f, c) {
+    var mt = m();
+    if (!mt) return;
+    var eq = f < 0 ? "A" : "B";
+    if (eq === "A") { if (mt.gf <= 0) return; mt.gf--; }
+    else { if (mt.gc <= 0) return; mt.gc--; }
+    for (var i = mt.goles.length - 1; i >= 0; i--) {
+      if (mt.goles[i].eq === eq) {
+        var g = mt.goles[i];
+        if (g.j && mt.gol[g.j]) mt.gol[g.j]--;
+        if (g.a && mt.asi[g.a]) mt.asi[g.a]--;
+        mt.goles.splice(i, 1);
+        break;
+      }
+    }
+    log("Corrección del marcador", "nota");
+    S.save();
+    render();
+  }
+
+  function cambio() {
+    var mt = m();
+    if (!mt) { U.toast("Convoca primero"); return; }
+    if (!mt.started && mt.campo.length < 11 && mt.banq.length) {
+      /* Antes del pitido inicial, el "cambio" es simplemente subir al once. */
+      elegirJugador("Sube al once", mt.banq, "El partido aún no ha empezado", function (id) {
+        mt.banq = mt.banq.filter(function (x) { return x !== id; });
+        mt.campo.push(id);
+        mt.st[id] = "En el campo";
+        S.save();
+        render();
+      });
+      return;
+    }
+    if (!mt.campo.length) { U.toast("No hay nadie en el campo"); return; }
+    if (!mt.banq.length) { U.toast("El banquillo está vacío"); return; }
+    elegirJugador("Cambio · ¿quién sale?", mt.campo, "", function (sale) {
+      setTimeout(function () {
+        elegirJugador("¿Quién entra?", mt.banq, "Sale " + nombre(sale), function (entra) {
+          mt.campo = mt.campo.filter(function (x) { return x !== sale; });
+          mt.banq = mt.banq.filter(function (x) { return x !== entra; });
+          mt.campo.push(entra);
+          mt.banq.push(sale);
+          mt.st[sale] = "Sustituido";
+          mt.st[entra] = "En el campo";
+          log(nombre(entra), "cambio", "a", "por " + nombre(sale));
+          S.save();
+          render();
+        });
+      }, 200);
+    });
+  }
+
+  function tarjeta(tipo) {
+    var mt = m();
+    if (!mt) { U.toast("Convoca primero"); return; }
+    var ids = mt.campo.concat(mt.banq);
+    elegirJugador(tipo === "y" ? "Tarjeta amarilla" : "Tarjeta roja", ids, "¿A qué jugador?", function (id) {
+      if (tipo === "y") {
+        mt.ta[id] = (mt.ta[id] || 0) + 1;
+        log(nombre(id), mt.ta[id] >= 2 ? "doble" : "amarilla", "a",
+            mt.ta[id] >= 2 ? "Segunda amarilla" : "Amonestación");
+        S.save();
+        render();
+        if (mt.ta[id] >= 2 && !mt.tr[id] &&
+            window.CB.shell.confirmar(nombre(id) + " acumula dos amarillas. ¿Registrar la expulsión?")) {
+          expulsar(id);
+        }
+      } else {
+        expulsar(id);
+      }
+    });
+  }
+
+  function expulsar(id) {
+    var mt = m();
+    mt.tr[id] = 1;
+    mt.st[id] = "Expulsado";
+    mt.campo = mt.campo.filter(function (x) { return x !== id; });
+    mt.banq = mt.banq.filter(function (x) { return x !== id; });
+    log(nombre(id), "roja", "a", "Expulsado · quedamos " + mt.campo.length);
+    S.save();
+    render();
+  }
+
+  function falta() {
+    var mt = m();
+    if (!mt) { U.toast("Convoca primero"); return; }
+    elegirJugador("Falta cometida", mt.campo.concat(mt.banq), "¿Quién la hizo?", function (id) {
+      mt.fal[id] = (mt.fal[id] || 0) + 1;
+      log(nombre(id), "falta", "a", "Falta · " + mt.fal[id] + " en el partido");
+      S.save();
+      render();
+    });
+  }
+
+  function nota() {
+    var mt = m();
+    if (!mt) return;
+    var t = window.prompt("Incidencia (lesión, ocasión, ajuste táctico...)");
+    if (t && t.trim()) {
+      log(t.trim(), "nota");
+      S.save();
+      render();
+    }
+  }
+
+  /* ---------------------------------------------------------
+     Cierre del acta
+     --------------------------------------------------------- */
+  function finalizar() {
+    var mt = m();
+    if (!mt) return;
+    if (!window.CB.shell.confirmar("¿Cerrar el acta y guardarla?")) return;
+    parar();
+    log("Final del partido", "periodo");
+    var e = S.ev(mt.ev) || { fecha: "", rival: "" };
+    var acta = {
+      id: U.uid(), ev: mt.ev, fecha: e.fecha, rival: e.rival,
+      gf: mt.gf, gc: mt.gc, log: mt.log,
+      goles: mt.goles || [], titulares: mt.titulares || [],
+      jug: mt.conv.map(function (id) {
+        var j = S.jug(id) || {};
+        return {
+          j: id, dorsal: j.dorsal, nombre: j.nombre, pos: j.pos,
+          seg: mt.t[id], min: Math.floor((mt.t[id] || 0) / 60), st: mt.st[id],
+          gol: mt.gol[id] || 0, asi: (mt.asi && mt.asi[id]) || 0,
+          fal: (mt.fal && mt.fal[id]) || 0, ta: mt.ta[id] || 0, tr: mt.tr[id] || 0
+        };
+      })
+    };
+    window.DB.partidos = window.DB.partidos.filter(function (p) { return p.ev !== mt.ev; });
+    window.DB.partidos.push(acta);
+    S.save();
+    render();
+
+    window.CB.shell.openSheet("Acta cerrada",
+      '<p class="hint">' + acta.gf + " – " + acta.gc + " frente a " + U.esc(acta.rival || "el rival") +
+      '. Ya está guardada en el dispositivo.</p>' +
+      '<button class="btn pri wide" onclick="CB.reports.actaPdfPorId(\'' + acta.id + '\')">' +
+        U.svg("pdf") + 'Acta en PDF</button>' +
+      '<button class="btn wide mt1" onclick="CB.reports.actaTxtPorId(\'' + acta.id + '\')">' +
+        U.svg("download") + 'Descargar en texto</button>',
+      [{ text: "Cerrar", cls: "ghost", fn: window.CB.shell.closeSheet }]);
+  }
+
+  function actaPdf() {
+    var a = window.DB.partidos.filter(function (p) { return p.ev === evId; })[0];
+    if (!a) { U.toast("Este partido aún no tiene acta"); return; }
+    window.CB.reports.actaPdf(a);
+  }
+
+  function recuperarActa() {
+    var a = window.DB.partidos.filter(function (p) { return p.ev === evId; })[0];
+    if (!a) { U.toast("Este partido no tiene acta"); return; }
+    var mt = {
+      ev: evId, conv: a.jug.map(function (f) { return f.j; }),
+      campo: [], banq: [], per: 0, seg: 0, run: false, started: true,
+      gf: a.gf, gc: a.gc, log: a.log, goles: a.goles || [], titulares: a.titulares || [],
+      t: {}, st: {}, ta: {}, tr: {}, gol: {}, asi: {}, fal: {}
+    };
+    a.jug.forEach(function (f) {
+      mt.t[f.j] = f.seg; mt.st[f.j] = f.st; mt.ta[f.j] = f.ta; mt.tr[f.j] = f.tr;
+      mt.gol[f.j] = f.gol; mt.asi[f.j] = f.asi || 0; mt.fal[f.j] = f.fal || 0;
+      if (f.st === "En el campo") mt.campo.push(f.j);
+      else if (f.st !== "Expulsado") mt.banq.push(f.j);
+    });
+    window.DB.match = mt;
+    parar();
+    S.save();
+    render();
+    U.toast("Acta recuperada");
+  }
+
+  function cambiar(id) {
+    if (m() && m().ev !== id) {
+      if (!window.CB.shell.confirmar("Hay un partido en curso. ¿Cambiar de partido y descartarlo?")) {
+        var s = U.$("mSel");
+        if (s) s.value = m().ev;
+        return;
+      }
+      parar();
+      window.DB.match = null;
+      S.save();
+    }
+    evId = id;
+    render();
+  }
+
+  window.CB.match = {
+    render: render, seleccionar: seleccionar, cambiar: cambiar,
+    reloj: alternarReloj, periodo: siguientePeriodo,
+    convocar: convocar, alineacion: alineacion,
+    gol: gol, golRival: golRival, asistencia: asistencia, cambio: cambio,
+    tarjeta: tarjeta, falta: falta, nota: nota, corregir: corregir,
+    finalizar: finalizar, actaPdf: actaPdf, recuperarActa: recuperarActa,
+    pestana: pestana, detener: parar,
+    _pick: _pick, _opt: _opt
+  };
+})();

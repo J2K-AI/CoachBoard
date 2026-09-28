@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Deben coincidir con css/tokens.css -->
+    <color name="fondo">#0F1115</color>
+    <color name="superficie">#171A21</color>
+    <color name="acento">#32D583</color>
+    <color name="cesped">#17452C</color>
+</resources>
