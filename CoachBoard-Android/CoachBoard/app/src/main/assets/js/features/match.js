@@ -62,6 +62,7 @@
   function alternarReloj() {
     var mt = m();
     if (!mt) { U.toast("Convoca primero"); return; }
+    if (enPenaltis()) { U.toast("La tanda no lleva reloj"); penaltis(); return; }
     if (mt.run) {
       parar();
       log("Reloj parado", "periodo");
@@ -80,16 +81,73 @@
     S.save();
     render();
   }
+  function enPenaltis() { var mt = m(); return !!mt && mt.per === M.PER_PENALTIS; }
+
+  /* Fin de parte. No es un "siguiente" a ciegas: al acabar la 2ª parte y
+     la prórroga hay que decidir, y lo normal es que el partido termine
+     ahí. Por eso pregunta en vez de encadenar prórrogas él solo. */
   function siguientePeriodo() {
     var mt = m();
     if (!mt) return;
-    if (mt.per >= 3) { U.toast("Último periodo"); return; }
+    if (enPenaltis()) { penaltis(); return; }
+
+    /* De la 1ª a la 2ª y de la prórroga 1 a la 2 no hay nada que decidir. */
+    if (mt.per === 0 || mt.per === 2) { avanzarA(mt.per + 1); return; }
+
+    var empate = mt.gf === mt.gc;
+    var marcador = mt.gf + " – " + mt.gc;
+
+    if (mt.per === 1) {
+      if (empate) {
+        elegirOpcion("Fin de la 2ª parte", "Empate a " + mt.gf + ". ¿Cómo sigue?",
+          ["Jugar la prórroga", "Ir directo a los penaltis", "Terminar en empate"],
+          function (op) {
+            if (op === "Jugar la prórroga") avanzarA(2);
+            else if (op === "Ir directo a los penaltis") irAPenaltis();
+            else terminar();
+          });
+      } else {
+        elegirOpcion("Fin de la 2ª parte", "Vas " + marcador + ": el partido está decidido.",
+          ["Finalizar el partido", "Jugar la prórroga igualmente"],
+          function (op) {
+            if (op === "Finalizar el partido") terminar();
+            else avanzarA(2);
+          });
+      }
+      return;
+    }
+
+    /* mt.per === 3: se acaba la prórroga. */
+    if (empate) {
+      elegirOpcion("Fin de la prórroga", "Seguís empatados a " + mt.gf + ".",
+        ["Ir a los penaltis", "Terminar en empate"],
+        function (op) { if (op === "Ir a los penaltis") irAPenaltis(); else terminar(); });
+    } else {
+      elegirOpcion("Fin de la prórroga", "Vas " + marcador + ": el partido está decidido.",
+        ["Finalizar el partido", "Ir a los penaltis"],
+        function (op) { if (op === "Finalizar el partido") terminar(); else irAPenaltis(); });
+    }
+  }
+
+  function avanzarA(per) {
+    var mt = m();
     parar();
     log("Fin de " + M.PERIODOS[mt.per], "periodo");
-    mt.per++;
+    mt.per = per;
     mt.seg = 0;
+    if (per === 2) log("Comienza la prórroga", "periodo");
     S.save();
     render();
+  }
+
+  /* El botón de la hoja ya es la confirmación: no se pregunta dos veces. */
+  function terminar() { finalizar(true); }
+
+  function etiquetaFinParte() {
+    var mt = m();
+    if (!mt) return "Siguiente parte";
+    if (enPenaltis()) return "Tanda de penaltis";
+    return "Fin de " + ["la 1ª parte", "la 2ª parte", "la Prórroga 1", "la Prórroga 2"][mt.per];
   }
 
   /* ---------------------------------------------------------
@@ -104,6 +162,11 @@
     var j = S.jug(id);
     return j ? (j.dorsal + " " + j.nombre) : "?";
   }
+  function rivalNombre() {
+    var mt = m();
+    var e = mt ? S.ev(mt.ev) : null;
+    return (e && e.rival) || "Rival";
+  }
   function icono(k) {
     switch (k) {
       case "gol": return '<span class="ic"><i class="i-ball"></i></span>';
@@ -114,6 +177,8 @@
       case "cambio": return '<span class="ic i-swap">&#8593;<span>&#8595;</span></span>';
       case "asis": return '<span class="ic"><i class="i-as">A</i></span>';
       case "falta": return '<span class="ic"><i class="i-foul"></i></span>';
+      case "pengol": return '<span class="ic"><i class="i-ball pen"></i></span>';
+      case "penfallo": return '<span class="ic"><i class="i-ball fallo"></i></span>';
       default: return '<span class="ic"><i class="i-note"></i></span>';
     }
   }
@@ -159,6 +224,10 @@
       '<div class="teams"><div class="tn">' + U.esc(izq) + '</div><div class="tn"></div>' +
       '<div class="tn">' + U.esc(der) + '</div></div>' +
       '<div class="score num"><span>' + gi + '</span><span class="sep">–</span><span>' + gd + '</span></div>' +
+      (mt && mt.pen && mt.pen.tiros.length
+        ? '<div class="penline num">' + (local ? mt.pen.a : mt.pen.b) + " – " +
+          (local ? mt.pen.b : mt.pen.a) + ' <span>en penaltis</span></div>'
+        : "") +
       '<div class="clock num ' + (mt && mt.run ? "" : "stop") + '" id="mClock">' +
         (mt ? U.mmss(BASE[mt.per] + mt.seg) : "00:00") + '</div>' +
       '<div class="per">' + (mt && mt.run ? '<span class="live"></span>' : "") +
@@ -182,9 +251,14 @@
       return;
     }
 
-    /* --- control del reloj --- */
-    h += '<button class="btn ' + (mt.run ? "warn" : "pri") + ' lg wide mt2" onclick="CB.match.reloj()">' +
-      U.svg(mt.run ? "pause" : "play") + (mt.run ? "Pausar" : mt.started ? "Reanudar" : "Iniciar partido") + '</button>';
+    /* --- control del reloj (en la tanda no hay reloj que llevar) --- */
+    if (enPenaltis()) {
+      h += '<button class="btn pri lg wide mt2" onclick="CB.match.penaltis()">' +
+        U.svg("ball") + 'Tanda de penaltis</button>';
+    } else {
+      h += '<button class="btn ' + (mt.run ? "warn" : "pri") + ' lg wide mt2" onclick="CB.match.reloj()">' +
+        U.svg(mt.run ? "pause" : "play") + (mt.run ? "Pausar" : mt.started ? "Reanudar" : "Iniciar partido") + '</button>';
+    }
 
     /* --- acciones rápidas --- */
     h += '<div class="grid-4 mt2">' +
@@ -209,7 +283,8 @@
     h += '<div id="mPanel" class="mt2"></div>';
 
     h += '<div class="grid-2 mt3">' +
-      '<button class="btn sm" onclick="CB.match.periodo()">' + U.svg("clock") + 'Siguiente parte</button>' +
+      '<button class="btn sm" onclick="CB.match.periodo()">' + U.svg("clock") +
+        '<span class="lbl">' + etiquetaFinParte() + '</span></button>' +
       '<button class="btn sm" onclick="CB.match.alineacion()">' + U.svg("users2") + 'Alineación</button>' +
       '</div>';
     h += '<div class="grid-2 mt1">' +
@@ -443,6 +518,8 @@
   function gol() {
     var mt = m();
     if (!mt) { U.toast("Convoca primero"); return; }
+    /* En la tanda los goles no cuentan en el marcador: se anotan aparte. */
+    if (enPenaltis()) { penaltis(); return; }
     var enCampo = mt.campo.slice();
     elegirJugador("Gol · ¿quién marcó?", enCampo, "", function (id) {
       preguntarTipoGol(id);
@@ -512,6 +589,7 @@
   function golRival() {
     var mt = m();
     if (!mt) { U.toast("Convoca primero"); return; }
+    if (enPenaltis()) { penaltis(); return; }
     elegirOpcion("Gol del rival", "¿Cómo encajamos?", M.TIPOS_GOL_RIVAL, function (tipo) {
       mt.gc++;
       mt.goles.push({ min: minuto(), eq: "B", j: null, a: null, tipo: tipo });
@@ -629,12 +707,130 @@
   }
 
   /* ---------------------------------------------------------
-     Cierre del acta
+     Tanda de penaltis
+
+     Va aparte del marcador: una tanda no cambia el resultado del
+     partido (2-2 sigue siendo 2-2) ni suma goles a las estadísticas
+     de nadie. Solo decide quién pasa.
      --------------------------------------------------------- */
-  function finalizar() {
+  function tanda() {
+    var mt = m();
+    if (!mt) return null;
+    if (!mt.pen) mt.pen = { a: 0, b: 0, tiros: [] };
+    return mt.pen;
+  }
+
+  function irAPenaltis() {
     var mt = m();
     if (!mt) return;
-    if (!window.CB.shell.confirmar("¿Cerrar el acta y guardarla?")) return;
+    parar();
+    if (!enPenaltis()) {
+      log("Fin de " + M.PERIODOS[mt.per], "periodo");
+      mt.per = M.PER_PENALTIS;
+      mt.seg = 0;
+      tanda();
+      log("Comienza la tanda de penaltis", "periodo");
+    }
+    S.save();
+    render();
+    penaltis();
+  }
+
+  function penaltis() {
+    var mt = m();
+    if (!mt) { U.toast("Convoca primero"); return; }
+    if (!enPenaltis()) {
+      if (!window.CB.shell.confirmar("¿Empezar ya la tanda de penaltis?")) return;
+      irAPenaltis();
+      return;
+    }
+
+    var p = tanda();
+    var lista = p.tiros.length
+      ? '<div class="plist mt2">' + p.tiros.map(function (t, i) {
+          var quien = t.eq === "a" ? (t.j ? nombre(t.j) : S.club()) : rivalNombre();
+          return '<div class="prow"><span class="num-badge sm">' + (i + 1) + '</span>' +
+            '<div class="pmain"><div class="nm">' + U.esc(quien) + '</div>' +
+            '<div class="sub">' + (t.eq === "a" ? "Nosotros" : "Rival") + '</div></div>' +
+            '<div class="pend"><div class="big">' + (t.ok ? "✓" : "✕") + '</div></div></div>';
+        }).join("") + '</div>'
+      : '<p class="hint mt2">Todavía no ha lanzado nadie.</p>';
+
+    window.CB.shell.openSheet("Tanda de penaltis",
+      '<div class="kpi accent"><div class="v">' + p.a + " – " + p.b + '</div>' +
+        '<div class="k">' + U.esc(S.club()) + " · " + U.esc(rivalNombre()) + '</div></div>' +
+      '<div class="grid-2 mt2">' +
+        '<button class="btn pri" onclick="CB.match.penTiro(\'a\',1)">Marcamos</button>' +
+        '<button class="btn" onclick="CB.match.penTiro(\'a\',0)">Fallamos</button>' +
+      '</div>' +
+      '<div class="grid-2 mt1">' +
+        '<button class="btn" onclick="CB.match.penTiro(\'b\',1)">Marca el rival</button>' +
+        '<button class="btn" onclick="CB.match.penTiro(\'b\',0)">Falla el rival</button>' +
+      '</div>' +
+      (p.tiros.length
+        ? '<button class="btn sm ghost wide mt2" onclick="CB.match.penDeshacer()">Deshacer el último lanzamiento</button>'
+        : "") +
+      lista,
+      [
+        { text: "Finalizar el partido", cls: "pri", fn: function () { window.CB.shell.closeSheet(); finalizar(true); } },
+        { text: "Cerrar", cls: "ghost", fn: window.CB.shell.closeSheet }
+      ]);
+  }
+
+  function penTiro(eq, ok) {
+    var mt = m();
+    if (!mt) return;
+    ok = String(ok) === "1";
+    if (eq !== "a") { registrarTiro("b", null, ok); return; }
+    var ids = mt.campo.concat(mt.banq);
+    if (!ids.length) { registrarTiro("a", null, ok); return; }
+    elegirJugador(ok ? "¿Quién marcó?" : "¿Quién falló?", ids, "Lanzamiento de la tanda",
+      function (id) { registrarTiro("a", id, ok); },
+      { text: "Sin anotar quién", fn: function () {
+          pickHandler = null;
+          window.CB.shell.closeSheet();
+          registrarTiro("a", null, ok);
+        } });
+  }
+
+  function registrarTiro(eq, id, ok) {
+    var p = tanda();
+    if (!p) return;
+    p.tiros.push({ eq: eq, j: id || null, ok: ok });
+    if (ok) { if (eq === "a") p.a++; else p.b++; }
+    var quien = eq === "a" ? (id ? nombre(id) : S.club()) : rivalNombre();
+    log(quien, ok ? "pengol" : "penfallo", eq,
+      (ok ? "Penalti marcado" : "Penalti fallado") + " · tanda " + p.a + "–" + p.b);
+    S.save();
+    render();
+    penaltis();
+  }
+
+  function penDeshacer() {
+    var mt = m();
+    var p = tanda();
+    if (!p || !p.tiros.length) return;
+    var t = p.tiros.pop();
+    if (t.ok) {
+      if (t.eq === "a") p.a = Math.max(0, p.a - 1);
+      else p.b = Math.max(0, p.b - 1);
+    }
+    /* Su línea de la crónica es la más reciente de la tanda. */
+    for (var i = 0; i < mt.log.length; i++) {
+      if (mt.log[i].k === "pengol" || mt.log[i].k === "penfallo") { mt.log.splice(i, 1); break; }
+    }
+    S.save();
+    render();
+    penaltis();
+  }
+
+  /* ---------------------------------------------------------
+     Cierre del acta
+     --------------------------------------------------------- */
+  function finalizar(sinPreguntar) {
+    var mt = m();
+    if (!mt) return;
+    if (!sinPreguntar && !window.CB.shell.confirmar("¿Cerrar el acta y guardarla?")) return;
     parar();
     log("Final del partido", "periodo");
     var e = S.ev(mt.ev) || { fecha: "", rival: "" };
@@ -642,6 +838,7 @@
       id: U.uid(), ev: mt.ev, fecha: e.fecha, rival: e.rival,
       gf: mt.gf, gc: mt.gc, log: mt.log,
       goles: mt.goles || [], titulares: mt.titulares || [],
+      pen: (mt.pen && mt.pen.tiros.length) ? mt.pen : null,
       jug: mt.conv.map(function (id) {
         var j = S.jug(id) || {};
         return {
@@ -680,6 +877,7 @@
       ev: evId, conv: a.jug.map(function (f) { return f.j; }),
       campo: [], banq: [], per: 0, seg: 0, run: false, started: true,
       gf: a.gf, gc: a.gc, log: a.log, goles: a.goles || [], titulares: a.titulares || [],
+      pen: a.pen || null,
       t: {}, st: {}, ta: {}, tr: {}, gol: {}, asi: {}, fal: {}
     };
     a.jug.forEach(function (f) {
@@ -716,6 +914,7 @@
     convocar: convocar, alineacion: alineacion,
     gol: gol, golRival: golRival, asistencia: asistencia, cambio: cambio,
     tarjeta: tarjeta, falta: falta, nota: nota, corregir: corregir,
+    penaltis: penaltis, penTiro: penTiro, penDeshacer: penDeshacer,
     finalizar: finalizar, actaPdf: actaPdf, recuperarActa: recuperarActa,
     pestana: pestana, detener: parar,
     _pick: _pick, _opt: _opt

@@ -47,7 +47,10 @@ export function crearRunner(titulo, errores, pagina) {
         console.log(`  ok     ${nombre}`);
       }
     },
-    get fallos() { return fallos; }
+    /* Función y no getter a propósito: un `const { paso, ...r } = ...`
+       congelaría el valor de un getter en 0 y las pruebas fallidas no
+       harían fallar la ejecución. Una función sobrevive al spread. */
+    contarFallos: function () { return fallos; }
   };
 }
 

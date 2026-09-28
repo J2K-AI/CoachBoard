@@ -48,8 +48,8 @@
 
     var chips = '<div class="chiprow mt2">' +
       chip("todos", "Todos") + chip("disponibles", "Disponibles") + chip("lesionados", "Lesionados") +
-      '<span style="width:6px;flex:none"></span>' +
-      '<button class="chip" onclick="CB.squad.ordenar()">' + U.svg("sort") + ' ' + etiquetaOrden() + '</button>' +
+      '<button class="chip fin" onclick="CB.squad.ordenar()">' + U.svg("sort") +
+        '<span>' + etiquetaOrden() + '</span></button>' +
       '</div>';
 
     var cuerpo;

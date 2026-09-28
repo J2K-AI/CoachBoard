@@ -19,6 +19,28 @@
   /* ---------------------------------------------------------
      Acta del partido
      --------------------------------------------------------- */
+  /* La tanda no altera el resultado: se escribe al lado, entre paréntesis. */
+  function penTexto(a, local) {
+    if (!a.pen || !a.pen.tiros || !a.pen.tiros.length) return "";
+    var pi = local ? a.pen.a : a.pen.b;
+    var pd = local ? a.pen.b : a.pen.a;
+    return ' <span style="font-size:11pt;font-weight:600">(' + pi + " &ndash; " + pd +
+      " en penaltis)</span>";
+  }
+
+  function tandaHtml(a, club, rival) {
+    if (!a.pen || !a.pen.tiros || !a.pen.tiros.length) return "";
+    var filas = a.pen.tiros.map(function (t, i) {
+      return '<tr><td class="n">' + (i + 1) + "</td>" +
+        "<td>" + (t.eq === "a" ? U.esc(club) : U.esc(rival)) + "</td>" +
+        "<td>" + (t.eq === "a" && t.j ? U.esc(nombreEnActa(a, t.j)) : "&mdash;") + "</td>" +
+        "<td>" + (t.ok ? "Marcado" : "Fallado") + "</td></tr>";
+    }).join("");
+    return "<h4>Tanda de penaltis &middot; " + a.pen.a + " &ndash; " + a.pen.b + "</h4>" +
+      '<table><thead><tr><th class="n">Nº</th><th>Equipo</th><th>Lanzador</th>' +
+      "<th>Resultado</th></tr></thead><tbody>" + filas + "</tbody></table>";
+  }
+
   function actaHtml(a) {
     var e = S.ev(a.ev) || {};
     var club = S.club();
@@ -83,12 +105,14 @@
     return '<div class="acta">' +
       '<div class="ah"><div class="ah-t">ACTA DE PARTIDO</div><div class="ah-s">' + cab + "</div></div>" +
       '<div class="ares"><div class="tm r">' + U.esc(izq) + "</div>" +
-        '<div class="sc">' + mIzq + " &ndash; " + mDer + "</div>" +
+        '<div class="sc">' + mIzq + " &ndash; " + mDer + penTexto(a, local) + "</div>" +
         '<div class="tm">' + U.esc(der) + "</div></div>" +
 
       "<h4>Goles</h4>" +
       '<table><thead><tr><th class="n">Min</th><th>Equipo</th><th>Goleador</th><th>Tipo</th>' +
       "<th>Asistencia</th></tr></thead><tbody>" + filasGol + "</tbody></table>" +
+
+      tandaHtml(a, club, rival) +
 
       "<h4>Participación</h4>" +
       '<table><thead><tr><th class="n">Dor</th><th>Jugador</th><th>Pos</th><th>Rol</th>' +
@@ -124,13 +148,25 @@
     if (!a) return;
     var club = S.club();
     var txt = "ACTA DEL PARTIDO\r\nFecha: " + a.fecha + "   Rival: " + a.rival +
-      "\r\nResultado: " + a.gf + " - " + a.gc + "\r\n\r\nGOLES\r\n";
+      "\r\nResultado: " + a.gf + " - " + a.gc +
+      (a.pen && a.pen.tiros && a.pen.tiros.length
+        ? "  (" + a.pen.a + " - " + a.pen.b + " en la tanda de penaltis)" : "") +
+      "\r\n\r\nGOLES\r\n";
     (a.goles || []).forEach(function (g) {
       txt += String(g.min).padStart(3) + "'  " +
         (g.eq === "A" ? club : "rival") + "  " +
         (g.j ? nombreEnActa(a, g.j) : "-") + "  (" + g.tipo + ")" +
         (g.a ? "  asist. " + nombreEnActa(a, g.a) : "") + "\r\n";
     });
+    if (a.pen && a.pen.tiros && a.pen.tiros.length) {
+      txt += "\r\nTANDA DE PENALTIS  " + a.pen.a + " - " + a.pen.b + "\r\n";
+      a.pen.tiros.forEach(function (t, i) {
+        txt += String(i + 1).padStart(3) + "  " +
+          (t.eq === "a" ? club : "rival").padEnd(20) +
+          (t.eq === "a" && t.j ? nombreEnActa(a, t.j) : "-").padEnd(24) +
+          (t.ok ? "marcado" : "fallado") + "\r\n";
+      });
+    }
     txt += "\r\nMINUTOS POR JUGADOR\r\n";
     a.jug.slice().sort(function (x, y) { return y.min - x.min; }).forEach(function (f) {
       txt += String(f.dorsal).padStart(3) + "  " + String(f.nombre).padEnd(24) +

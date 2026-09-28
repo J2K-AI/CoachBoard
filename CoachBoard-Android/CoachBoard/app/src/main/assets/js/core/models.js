@@ -25,8 +25,11 @@
   var CONDICIONES = ["Local", "Visitante", "Neutral"];
 
   /* --- partido ---------------------------------------------- */
-  var PERIODOS = ["1ª parte", "2ª parte", "Prórroga 1", "Prórroga 2"];
-  var PERIODO_BASE = [0, 2700, 5400, 6300];
+  /* El último "periodo" es la tanda de penaltis: no tiene reloj, pero
+     ocupa un hueco aquí para que el partido pueda avanzar hasta ella. */
+  var PERIODOS = ["1ª parte", "2ª parte", "Prórroga 1", "Prórroga 2", "Penaltis"];
+  var PERIODO_BASE = [0, 2700, 5400, 6300, 7200];
+  var PER_PENALTIS = 4;
   var TIPOS_GOL = ["Jugada", "Penalti", "Falta directa", "Corner", "En propia del rival"];
   var TIPOS_GOL_RIVAL = ["Jugada", "Penalti", "Falta directa", "Corner", "En propia puerta"];
 
@@ -123,7 +126,7 @@
     POS: POS, POS_LARGO: POS_LARGO, PIES: PIES, ESTADOS: ESTADOS,
     ATT_STATES: ATT_STATES, ATT_GLYPH: ATT_GLYPH,
     TIPOS_SESION: TIPOS_SESION, CONDICIONES: CONDICIONES,
-    PERIODOS: PERIODOS, PERIODO_BASE: PERIODO_BASE,
+    PERIODOS: PERIODOS, PERIODO_BASE: PERIODO_BASE, PER_PENALTIS: PER_PENALTIS,
     TIPOS_GOL: TIPOS_GOL, TIPOS_GOL_RIVAL: TIPOS_GOL_RIVAL,
     COLS: COLS, TOOLS: TOOLS, MODOS_CAMPO: MODOS_CAMPO, CATEGORIAS: CATEGORIAS,
     esDosPuntas: esDosPuntas, makeItem: makeItem, FORMS: FORMS

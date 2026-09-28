@@ -11,7 +11,8 @@ import { abrirPagina, crearRunner } from "./harness.mjs";
 
 export default async function (browser, url, etiqueta = "pizarra") {
   const { contexto, pagina, errores } = await abrirPagina(browser, url);
-  const { paso, ...r } = crearRunner(etiqueta, errores, pagina);
+  const runner = crearRunner(etiqueta, errores, pagina);
+  const paso = runner.paso;
 
   await pagina.evaluate(() => CB.shell.go("board"));
   await pagina.waitForTimeout(400);
@@ -234,5 +235,5 @@ export default async function (browser, url, etiqueta = "pizarra") {
   });
 
   await contexto.close();
-  return r.fallos;
+  return runner.contarFallos();
 }

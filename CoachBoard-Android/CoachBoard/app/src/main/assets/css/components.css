@@ -61,17 +61,24 @@
 /* ------------------------------------------------------------
    Chips y segmentos
    ------------------------------------------------------------ */
+/* Envuelve en vez de desplazarse: en un móvil estrecho el último chip
+   quedaba medio fuera de pantalla y parecía roto. */
 .chiprow{
-  display:flex; gap:6px; overflow-x:auto; padding:2px 0;
-  -webkit-overflow-scrolling:touch; scrollbar-width:none;
+  display:flex; flex-wrap:wrap; gap:6px; padding:2px 0;
 }
-.chiprow::-webkit-scrollbar{ display:none; }
+.chiprow .chip.fin{ margin-left:auto; }
 .chip{
-  flex:none; padding:8px 14px; border-radius:var(--r-pill);
+  flex:none; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  padding:8px 14px; border-radius:var(--r-pill);
   background:var(--surface-2); color:var(--text-dim);
   font-size:13px; font-weight:650; white-space:nowrap;
   transition:background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
+/* Sin esta regla el <svg> no tiene tamaño propio, ocupa el de por defecto
+   (300x150 en la mayoría de navegadores) y empuja el texto fuera de la
+   píldora: era el fallo del chip "Dorsal". */
+.chip svg{ width:15px; height:15px; flex:none; stroke:currentColor; fill:none;
+  stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
 .chip.on{ background:var(--accent); color:var(--accent-ink); }
 
 .seg{

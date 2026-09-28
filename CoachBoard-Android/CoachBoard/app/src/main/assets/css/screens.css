@@ -59,6 +59,14 @@
   display:flex; align-items:center; justify-content:center; gap:var(--s2);
 }
 .board .score .sep{ color:var(--text-faint); font-size:26px; }
+/* La tanda no toca el marcador: se enseña debajo y más pequeña. */
+.board .penline{
+  margin-top:4px; font-size:15px; font-weight:700; color:var(--info);
+}
+.board .penline span{
+  font-family:var(--sans); font-size:10px; font-weight:700;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim);
+}
 .board .clock{
   font-size:46px; font-weight:700; line-height:1.05; letter-spacing:.01em;
   color:var(--accent); margin-top:var(--s2);
@@ -123,6 +131,9 @@
 .i-ball{ width:16px; height:16px; border-radius:50%; background:#fff;
   box-shadow:inset -3px -3px 0 -1px #10141A, 0 0 0 2px var(--accent); }
 .i-ball.con{ box-shadow:inset -3px -3px 0 -1px #10141A, 0 0 0 2px var(--danger); }
+.i-ball.pen{ box-shadow:inset -3px -3px 0 -1px #10141A, 0 0 0 2px var(--info); }
+.i-ball.fallo{ background:var(--text-faint);
+  box-shadow:inset -3px -3px 0 -1px #10141A, 0 0 0 2px var(--danger); }
 .i-card{ width:12px; height:17px; border-radius:2px; }
 .i-card.y{ background:var(--warn); }
 .i-card.r{ background:var(--danger); }
