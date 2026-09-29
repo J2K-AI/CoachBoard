@@ -205,6 +205,50 @@ export default async function (browser, url, etiqueta = "aplicación") {
     if (await pagina.evaluate(() => DB.match.per) !== 1) throw new Error("no avanzó");
   });
 
+  await paso("descanso: arranca solo al cambiar de parte", async () => {
+    const a = await pagina.evaluate(() => ({ br: !!DB.match.br, run: DB.match.br && DB.match.br.run }));
+    if (!a.br || !a.run) throw new Error("no arrancó el descanso: " + JSON.stringify(a));
+    await pagina.waitForTimeout(2200);
+    const seg = await pagina.evaluate(() => DB.match.br.seg);
+    if (seg < 2) throw new Error("el descanso no corre: " + seg);
+    const reloj = await pagina.evaluate(() => document.getElementById("mClock").textContent);
+    if (!/^\d\d:\d\d$/.test(reloj)) throw new Error("reloj del descanso: " + reloj);
+  });
+
+  await paso("descanso: el botón grande arranca la parte siguiente", async () => {
+    const t = await pagina.evaluate(() =>
+      document.querySelector("#matchBody .btn.lg.wide").innerText.trim());
+    if (!t.toLowerCase().includes("empezar")) throw new Error("botón: " + t);
+    await pagina.evaluate(() => CB.match.empezarParte());
+    await pagina.waitForTimeout(1400);
+    const r = await pagina.evaluate(() => ({ br: !!DB.match.br, run: DB.match.run, seg: DB.match.seg }));
+    if (r.br || !r.run || r.seg < 1) throw new Error(JSON.stringify(r));
+  });
+
+  await paso("el reloj no se queda en 45: sigue contando en la 2ª parte", async () => {
+    /* El fallo original: al pasar de parte el reloj quedaba en pausa
+       y el acta se cerraba en 45:00 aunque se jugara la 2ª entera. */
+    const r = await pagina.evaluate(() => {
+      DB.match.seg = 40 * 60;            // 40 minutos de 2ª parte
+      CB.match.render();
+      return document.getElementById("mClock").textContent;
+    });
+    if (r !== "85:00") throw new Error("marca " + r + ", debería marcar 85:00");
+    const fin = await pagina.evaluate(() => {
+      DB.match.seg = 45 * 60;
+      CB.match.render();
+      return document.getElementById("mClock").textContent;
+    });
+    if (fin !== "90:00") throw new Error("al final de la 2ª marca " + fin);
+    await pagina.evaluate(() => { DB.match.seg = 120; CB.match.render(); });
+  });
+
+  await paso("el tiempo añadido queda anotado en la crónica", async () => {
+    const txt = await pagina.evaluate(() =>
+      DB.match.log.filter(l => l.k === "periodo").map(l => l.t).join(" | "));
+    if (!/Fin de la 1ª parte \(\d\d:\d\d\)/.test(txt)) throw new Error("crónica: " + txt);
+  });
+
   await paso("partido: si está decidido ofrece finalizar, no la prórroga", async () => {
     await pagina.evaluate(() => { DB.match.gf = 2; DB.match.gc = 0; CB.match.periodo(); });
     await pagina.waitForTimeout(200);
@@ -242,7 +286,7 @@ export default async function (browser, url, etiqueta = "aplicación") {
     await pagina.evaluate(() => document.querySelectorAll("#sheetBody .btn")[0].click());
     await pagina.waitForTimeout(300);
     const r = await pagina.evaluate(() => ({
-      per: DB.match.per, fin: CB.models.PER_PENALTIS, pen: !!DB.match.pen
+      per: DB.match.per, fin: CB.models.penIndex(DB.match.dur), pen: !!DB.match.pen
     }));
     if (r.per !== r.fin || !r.pen) throw new Error(JSON.stringify(r));
   });
@@ -335,6 +379,98 @@ export default async function (browser, url, etiqueta = "aplicación") {
       CB.store.save(); CB.app.renderAll();
     }, copia);
     if (await pagina.evaluate(() => DB.jugadores.length) < 18) throw new Error("no se restauró");
+  });
+
+  // ---------------------------------------------------------------
+  // Duración del partido
+  // ---------------------------------------------------------------
+  await paso("duración: la rueda se abre con tres columnas", async () => {
+    await pagina.evaluate(() => { CB.shell.go("agenda"); CB.agenda.editar(null, "Partido"); });
+    await pagina.waitForTimeout(250);
+    await pagina.evaluate(() => CB.agenda.duracion());
+    await pagina.waitForTimeout(300);
+    const r = await pagina.evaluate(() => ({
+      cols: document.querySelectorAll("#sheetBody .wheel").length,
+      opciones: document.querySelectorAll("#w-min .wop").length,
+      centrada: (document.querySelector("#w-min .wop.on") || {}).textContent,
+      snap: getComputedStyle(document.getElementById("w-min")).scrollSnapType
+    }));
+    if (r.cols !== 3) throw new Error("columnas=" + r.cols);
+    if (r.opciones !== 60) throw new Error("minutos=" + r.opciones);
+    if (!String(r.centrada).startsWith("45")) throw new Error("centrada=" + r.centrada);
+    if (!r.snap.includes("mandatory")) throw new Error("sin encaje: " + r.snap);
+  });
+
+  await paso("duración: arrastrar la rueda cambia el valor", async () => {
+    await pagina.evaluate(() => {
+      const el = document.getElementById("w-min");
+      el.scrollTop = 29 * 38;                     // la opción nº 30
+      el.dispatchEvent(new Event("scroll"));
+    });
+    await pagina.waitForTimeout(220);
+    const v = await pagina.evaluate(() =>
+      (document.querySelector("#w-min .wop.on") || {}).textContent);
+    if (!String(v).startsWith("30")) throw new Error("marca " + v);
+  });
+
+  await paso("duración: un formato mueve las ruedas y se guarda", async () => {
+    await pagina.evaluate(() => CB.wheel.formato(2));      // fútbol sala: 2 x 20
+    await pagina.waitForTimeout(700);
+    await pagina.evaluate(() => document.querySelectorAll("#sheetFoot .btn")[1].click());
+    await pagina.waitForTimeout(350);
+    const t = await pagina.evaluate(() =>
+      document.querySelector('#sheetBody .btn[onclick*="duracion"]').innerText);
+    if (!t.includes("2 × 20")) throw new Error("el formulario dice: " + t);
+    await pagina.evaluate(() => {
+      document.getElementById("eRiv").value = "CD Sala";
+      document.querySelectorAll("#sheetFoot .btn")[1].click();
+    });
+    await pagina.waitForTimeout(300);
+    const ev = await pagina.evaluate(() => DB.eventos.filter(e => e.rival === "CD Sala")[0]);
+    if (!ev || ev.dur.min !== 20 || ev.dur.partes !== 2) throw new Error(JSON.stringify(ev && ev.dur));
+    const rec = await pagina.evaluate(() => DB.durDef);
+    if (!rec || rec.min !== 20) throw new Error("no se recordó para el siguiente");
+  });
+
+  await paso("un partido a cuartos numera y cuenta bien", async () => {
+    await pagina.evaluate(() => {
+      DB.match.dur = { partes: 4, min: 15, desc: 10, prorroga: 5 };
+      DB.match.per = 1; DB.match.seg = 0; DB.match.br = null; DB.match.run = false;
+      CB.shell.go("match"); CB.match.render();
+    });
+    await pagina.waitForTimeout(250);
+    const r = await pagina.evaluate(() => ({
+      reloj: document.getElementById("mClock").textContent,
+      per: document.querySelector("#matchBody .board .per").innerText,
+      pen: CB.models.penIndex(DB.match.dur),
+      dur: document.querySelector("#matchBody .durlink").innerText
+    }));
+    if (r.reloj !== "15:00") throw new Error("el 2º cuarto arranca en " + r.reloj);
+    if (!r.per.toLowerCase().includes("cuarto")) throw new Error("periodo: " + r.per);
+    if (r.pen !== 6) throw new Error("los penaltis van en el índice " + r.pen);
+    if (!r.dur.includes("4 × 15")) throw new Error("enlace: " + r.dur);
+  });
+
+  await paso("a cuartos, solo se decide al final del cuarto", async () => {
+    /* Entre cuartos no debe preguntar nada: la decisión de prórroga o
+       final llega al acabar el último, no al acabar el segundo. */
+    await pagina.evaluate(() => CB.match.periodo());       // 2º -> 3er cuarto
+    await pagina.waitForTimeout(200);
+    if (await pagina.locator("#sheet").isVisible()) throw new Error("preguntó entre cuartos");
+    if (await pagina.evaluate(() => DB.match.per) !== 2) throw new Error("no avanzó al 3er cuarto");
+    const et = await pagina.evaluate(() =>
+      document.querySelector('#matchBody button[onclick*="periodo"]').innerText);
+    if (!et.includes("Fin del 3er cuarto")) throw new Error("el botón dice: " + et);
+
+    await pagina.evaluate(() => { DB.match.br = null; CB.match.periodo(); });  // 3º -> 4º
+    await pagina.waitForTimeout(200);
+    if (await pagina.evaluate(() => DB.match.per) !== 3) throw new Error("no llegó al 4º cuarto");
+
+    await pagina.evaluate(() => { DB.match.br = null; DB.match.gf = 3; DB.match.gc = 1; CB.match.periodo(); });
+    await pagina.waitForTimeout(250);
+    const t = (await pagina.locator("#sheetTitle").innerText()).toLowerCase();
+    if (!t.includes("4º cuarto")) throw new Error("al acabar el último no ofrece nada: " + t);
+    await pagina.evaluate(() => CB.shell.closeSheet());
   });
 
   await paso("navegación: todas las secciones responden", async () => {

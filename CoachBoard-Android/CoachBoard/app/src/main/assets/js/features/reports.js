@@ -50,7 +50,8 @@
     var mIzq = local ? a.gf : a.gc, mDer = local ? a.gc : a.gf;
 
     var cab = [e.comp || e.tipo || "Partido", a.fecha ? U.fmtDate(a.fecha) : "", e.hora || "", e.lugar || "",
-               e.cond ? "condición: " + e.cond.toLowerCase() : ""]
+               e.cond ? "condición: " + e.cond.toLowerCase() : "",
+               a.dur ? M.durTexto(a.dur) : ""]
       .filter(Boolean).join(" &middot; ");
 
     var goles = (a.goles || []).slice().sort(function (x, y) { return x.min - y.min; });

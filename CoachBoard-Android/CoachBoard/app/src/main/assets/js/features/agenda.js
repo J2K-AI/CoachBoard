@@ -50,9 +50,40 @@
     var e = id ? S.ev(id) : {
       tipo: tipoDefecto || "Entrenamiento",
       fecha: U.today(), hora: "19:00",
-      rival: "", cond: "Local", lugar: "", comp: "", notas: ""
+      rival: "", cond: "Local", lugar: "", comp: "", notas: "",
+      /* La duración del último partido programado sirve de punto de
+         partida: casi siempre se repite dentro de una misma categoría. */
+      dur: M.normDur(window.DB.durDef)
     };
     if (!e) return;
+    abrir(e, id);
+  }
+
+  /* El formulario se vuelve a pintar con lo escrito cuando se va y se
+     vuelve del selector de duración, que ocupa la misma hoja. */
+  var editandoId = null;
+
+  function borrador() {
+    return {
+      tipo: U.val("eTipo"), fecha: U.val("eFec"), hora: U.val("eHor"),
+      rival: U.val("eRiv").trim(), cond: U.val("eCon"),
+      lugar: U.val("eLug").trim(), comp: U.val("eCom").trim(), notas: U.val("eNot"),
+      dur: durActual
+    };
+  }
+  var durActual = null;
+
+  function duracion() {
+    var b = borrador();
+    window.CB.wheel.pedirDuracion(b.dur, function (nueva) {
+      b.dur = nueva;
+      abrir(b, editandoId);
+    });
+  }
+
+  function abrir(e, id) {
+    editandoId = id || null;
+    durActual = M.normDur(e.dur);
 
     var body =
       '<label class="f">Tipo de sesión</label>' +
@@ -72,6 +103,10 @@
         '<div><label class="f">Competición</label><input id="eCom" value="' + U.esc(e.comp) + '"></div>' +
       '</div>' +
       '<label class="f">Lugar</label><input id="eLug" value="' + U.esc(e.lugar) + '">' +
+      '<label class="f">Duración del partido</label>' +
+      '<button class="btn wide outline" onclick="CB.agenda.duracion()">' + U.svg("clock") +
+        '<span class="lbl">' + M.durTexto(durActual) +
+        (durActual.desc ? " · descanso " + durActual.desc + " min" : "") + '</span></button>' +
       '<label class="f">Objetivo de la sesión</label><textarea id="eNot">' + U.esc(e.notas) + '</textarea>';
 
     var botones = [];
@@ -96,9 +131,11 @@
           id: id || U.uid(),
           tipo: U.val("eTipo"), fecha: U.val("eFec"), hora: U.val("eHor"),
           rival: U.val("eRiv").trim(), cond: U.val("eCon"),
-          lugar: U.val("eLug").trim(), comp: U.val("eCom").trim(), notas: U.val("eNot")
+          lugar: U.val("eLug").trim(), comp: U.val("eCom").trim(), notas: U.val("eNot"),
+          dur: M.normDur(durActual)
         };
         if (!o.fecha) { U.toast("Elige la fecha"); return; }
+        if (S.isMatch(o)) window.DB.durDef = o.dur;   // se recuerda para el siguiente
         if (id) window.DB.eventos = window.DB.eventos.map(function (x) { return x.id === id ? o : x; });
         else window.DB.eventos.push(o);
         S.save();
@@ -111,5 +148,5 @@
     window.CB.shell.openSheet(id ? "Editar sesión" : "Nueva sesión", body, botones);
   }
 
-  window.CB.agenda = { render: render, editar: editar };
+  window.CB.agenda = { render: render, editar: editar, duracion: duracion };
 })();

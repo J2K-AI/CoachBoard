@@ -143,6 +143,7 @@ main{
 .spacer{ flex:1; }
 .mt1{ margin-top:var(--s1); } .mt2{ margin-top:var(--s2); }
 .mt3{ margin-top:var(--s3); } .mt4{ margin-top:var(--s4); }
+.mb2{ margin-bottom:var(--s2); }
 
 /* ------------------------------------------------------------
    Tablet y horizontal: barra lateral en vez de inferior

@@ -371,3 +371,46 @@ select{ appearance:none; -webkit-appearance:none;
   transition:opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease);
 }
 #toast.on{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+/* ------------------------------------------------------------
+   Ruedas de selección (duración del partido)
+
+   El desplazamiento y el encaje los hace el navegador con
+   `scroll-snap`; aquí solo se define la ventana y la banda del
+   centro. Por eso se arrastra con la misma inercia que una lista
+   nativa y no hace falta capturar el dedo.
+   ------------------------------------------------------------ */
+.wrow{ display:flex; gap:var(--s1); }
+.wcol{ flex:1; min-width:0; }
+.wlab{
+  font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--text-dim); text-align:center; margin-bottom:6px;
+}
+.wbox{
+  position:relative; border-radius:var(--r-btn);
+  background:var(--surface-2); overflow:hidden;
+}
+.wsel{
+  position:absolute; left:6px; right:6px; top:76px; height:38px;
+  border-radius:var(--r-sm); background:var(--surface-3); pointer-events:none;
+}
+.wheel{
+  position:relative; height:190px; overflow-y:auto;
+  scroll-snap-type:y mandatory; -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+}
+.wheel::-webkit-scrollbar{ display:none; }
+.wop{
+  height:38px; scroll-snap-align:center;
+  display:flex; align-items:baseline; justify-content:center; gap:3px;
+  font-family:var(--mono); font-variant-numeric:tabular-nums;
+  font-size:19px; font-weight:600; color:var(--text-faint);
+  transition:color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.wop small{ font-family:var(--sans); font-size:10px; font-weight:650; }
+.wop.on{ color:var(--text); transform:scale(1.06); }
+.wpad{ pointer-events:none; }
+
+@media (prefers-reduced-motion:reduce){
+  .wop{ transition:none; }
+}

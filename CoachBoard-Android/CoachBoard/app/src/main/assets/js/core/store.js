@@ -22,7 +22,8 @@
       tacticas: [],
       partidos: [],
       match: null,
-      tac: null
+      tac: null,
+      durDef: null        // última duración usada al programar un partido
     };
   }
 
@@ -69,10 +70,22 @@
       if (!Array.isArray(t.fichas)) t.fichas = [];
     });
 
+    /* Los partidos de antes de que la duración fuera elegible son
+       todos de 2 x 45: el valor por defecto ya los deja igual. */
+    var Mo = window.CB.models;
+    d.durDef = d.durDef ? Mo.normDur(d.durDef) : null;
+    d.eventos.forEach(function (e) {
+      if (isMatch(e)) e.dur = Mo.normDur(e.dur);
+    });
+
     if (d.match && !d.match.fal) d.match.fal = {};
     if (d.match && !d.match.goles) d.match.goles = [];
     if (d.match && !d.match.titulares) d.match.titulares = [];
+    if (d.match) d.match.dur = Mo.normDur(d.match.dur);
     if (d.match) d.match.run = false;     // nunca se reanuda solo al abrir
+    /* Un descanso a medias no sigue corriendo solo: se queda quieto y
+       el botón "Empezar la parte" lo cierra. */
+    if (d.match && d.match.br) d.match.br.run = false;
 
     d.partidos.forEach(function (p) {
       if (!Array.isArray(p.goles)) p.goles = [];

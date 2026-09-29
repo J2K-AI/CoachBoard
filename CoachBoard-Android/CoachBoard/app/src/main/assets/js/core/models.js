@@ -24,12 +24,81 @@
   var TIPOS_SESION = ["Entrenamiento", "Partido", "Amistoso", "Torneo"];
   var CONDICIONES = ["Local", "Visitante", "Neutral"];
 
-  /* --- partido ---------------------------------------------- */
-  /* El último "periodo" es la tanda de penaltis: no tiene reloj, pero
-     ocupa un hueco aquí para que el partido pueda avanzar hasta ella. */
-  var PERIODOS = ["1ª parte", "2ª parte", "Prórroga 1", "Prórroga 2", "Penaltis"];
-  var PERIODO_BASE = [0, 2700, 5400, 6300, 7200];
-  var PER_PENALTIS = 4;
+  /* --- partido ----------------------------------------------
+
+     No todas las categorías juegan 2 x 45: fútbol 7 son 2 x 25, sala
+     2 x 20 y en formación se juega a cuartos. La duración viaja con
+     cada partido y de ella salen los nombres de los periodos y el
+     minuto en el que arranca cada uno.
+
+     Después de las partes van siempre dos prórrogas y la tanda de
+     penaltis, que ocupa un hueco de periodo aunque no tenga reloj. */
+  var DUR_DEF = { partes: 2, min: 45, desc: 15, prorroga: 15 };
+
+  var FORMATOS = [
+    { label: "Fútbol 11",  partes: 2, min: 45, desc: 15, prorroga: 15 },
+    { label: "Fútbol 8/7", partes: 2, min: 25, desc: 10, prorroga: 10 },
+    { label: "Fútbol sala", partes: 2, min: 20, desc: 10, prorroga: 5 },
+    { label: "Cuatro cuartos", partes: 4, min: 15, desc: 10, prorroga: 5 }
+  ];
+
+  function normDur(d) {
+    d = d || {};
+    return {
+      partes: clampNum(d.partes, 1, 6, DUR_DEF.partes),
+      min: clampNum(d.min, 1, 60, DUR_DEF.min),
+      desc: clampNum(d.desc, 0, 30, DUR_DEF.desc),
+      prorroga: clampNum(d.prorroga, 0, 30, DUR_DEF.prorroga)
+    };
+  }
+  function clampNum(v, lo, hi, def) {
+    v = parseInt(v, 10);
+    if (isNaN(v)) return def;
+    return Math.min(hi, Math.max(lo, v));
+  }
+
+  var ORD = ["1ª", "2ª", "3ª", "4ª", "5ª", "6ª"];
+  var ORD_M = ["1er", "2º", "3er", "4º", "5º", "6º"];
+
+  /* Nombres de los periodos: partes, dos prórrogas y la tanda. */
+  function periodos(dur) {
+    var d = normDur(dur), a = [], i;
+    for (i = 0; i < d.partes; i++) {
+      if (d.partes === 2) a.push(ORD[i] + " parte");
+      else if (d.partes === 4) a.push(ORD_M[i] + " cuarto");
+      else a.push(ORD_M[i] + " periodo");
+    }
+    a.push("Prórroga 1", "Prórroga 2", "Penaltis");
+    return a;
+  }
+
+  /* Segundo en el que empieza cada periodo, para que el reloj siga
+     contando hacia arriba en vez de volver a cero en cada parte. */
+  function periodoBase(dur) {
+    var d = normDur(dur), a = [], i, t = 0;
+    for (i = 0; i < d.partes; i++) { a.push(t); t += d.min * 60; }
+    a.push(t); t += d.prorroga * 60;   // prórroga 1
+    a.push(t); t += d.prorroga * 60;   // prórroga 2
+    a.push(t);                         // penaltis
+    return a;
+  }
+
+  function penIndex(dur) { return normDur(dur).partes + 2; }
+
+  /* Descanso de este cambio de parte: el largo es el del intermedio;
+     entre cuartos solo se cambia de campo. */
+  function descansoSeg(dur, perQueAcaba) {
+    var d = normDur(dur);
+    var medio = Math.floor(d.partes / 2) - 1;
+    if (perQueAcaba === medio) return d.desc * 60;
+    return Math.min(d.desc, 5) * 60;
+  }
+
+  function durTexto(dur) {
+    var d = normDur(dur);
+    return d.partes + " × " + d.min + " min";
+  }
+
   var TIPOS_GOL = ["Jugada", "Penalti", "Falta directa", "Corner", "En propia del rival"];
   var TIPOS_GOL_RIVAL = ["Jugada", "Penalti", "Falta directa", "Corner", "En propia puerta"];
 
@@ -126,7 +195,9 @@
     POS: POS, POS_LARGO: POS_LARGO, PIES: PIES, ESTADOS: ESTADOS,
     ATT_STATES: ATT_STATES, ATT_GLYPH: ATT_GLYPH,
     TIPOS_SESION: TIPOS_SESION, CONDICIONES: CONDICIONES,
-    PERIODOS: PERIODOS, PERIODO_BASE: PERIODO_BASE, PER_PENALTIS: PER_PENALTIS,
+    DUR_DEF: DUR_DEF, FORMATOS: FORMATOS, normDur: normDur,
+    periodos: periodos, periodoBase: periodoBase, penIndex: penIndex,
+    descansoSeg: descansoSeg, durTexto: durTexto,
     TIPOS_GOL: TIPOS_GOL, TIPOS_GOL_RIVAL: TIPOS_GOL_RIVAL,
     COLS: COLS, TOOLS: TOOLS, MODOS_CAMPO: MODOS_CAMPO, CATEGORIAS: CATEGORIAS,
     esDosPuntas: esDosPuntas, makeItem: makeItem, FORMS: FORMS

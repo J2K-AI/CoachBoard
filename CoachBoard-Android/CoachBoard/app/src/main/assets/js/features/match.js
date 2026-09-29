@@ -35,10 +35,20 @@
   /* ---------------------------------------------------------
      Reloj
      --------------------------------------------------------- */
-  var BASE = M.PERIODO_BASE;
-  function minuto() {
-    return m() ? Math.floor((BASE[m().per] + m().seg) / 60) + 1 : 0;
+  /* La duración viaja con el partido, así que los tiempos base y los
+     nombres de los periodos se calculan; no son una constante. */
+  function dur() { var mt = m(); return M.normDur(mt && mt.dur); }
+  function bases() { return M.periodoBase(dur()); }
+  function etiquetaPeriodo(i) {
+    var p = M.periodos(dur());
+    return p[i] || p[p.length - 1];
   }
+  function relojSeg() {
+    var mt = m();
+    return mt ? bases()[mt.per] + mt.seg : 0;
+  }
+  function minuto() { return m() ? Math.floor(relojSeg() / 60) + 1 : 0; }
+
   function arrancar() {
     var mt = m();
     mt.run = true;
@@ -49,7 +59,7 @@
       x.seg++;
       x.campo.forEach(function (id) { x.t[id] = (x.t[id] || 0) + 1; });
       var c = U.$("mClock");
-      if (c) c.textContent = U.mmss(BASE[x.per] + x.seg);
+      if (c) c.textContent = U.mmss(relojSeg());
       if (x.seg % 10 === 0 && panelActivo === "plantilla") pintarPlantilla();
       if (x.seg % 15 === 0) S.save();
     }, 1000);
@@ -59,10 +69,61 @@
     timer = null;
     if (m()) m().run = false;
   }
+
+  /* ---------------------------------------------------------
+     Descanso
+
+     Antes, al pasar de parte el reloj se quedaba en pausa sin decir
+     nada: si el entrenador no le daba a "Reanudar", la segunda parte
+     no contaba y el acta se cerraba en 45:00. Ahora el descanso
+     arranca solo y el botón grande pasa a "Empezar la 2ª parte", así
+     que no queda ningún estado muerto.
+     --------------------------------------------------------- */
+  function enDescanso() { var mt = m(); return !!(mt && mt.br); }
+
+  function descansoRestante() {
+    var mt = m();
+    if (!mt || !mt.br) return 0;
+    return (mt.br.total || 0) - mt.br.seg;
+  }
+  function textoDescanso() {
+    var r = descansoRestante();
+    return (r < 0 ? "+" : "") + U.mmss(Math.abs(r));
+  }
+
+  function arrancarDescanso(total) {
+    var mt = m();
+    mt.br = { seg: 0, total: total, run: true };
+    clearInterval(timer);
+    timer = setInterval(function () {
+      var x = m();
+      if (!x || !x.br || !x.br.run) { clearInterval(timer); timer = null; return; }
+      x.br.seg++;
+      var c = U.$("mClock");
+      if (c) c.textContent = textoDescanso();
+      if (x.br.seg % 15 === 0) S.save();
+    }, 1000);
+  }
+
+  /* Cierra el descanso y arranca de verdad la parte que toca. */
+  function empezarParte() {
+    var mt = m();
+    if (!mt) return;
+    var gastado = mt.br ? mt.br.seg : 0;
+    mt.br = null;
+    clearInterval(timer);
+    log("Comienza " + conArticulo(mt.per), "periodo",
+      "a", gastado ? "Descanso de " + U.mmss(gastado) : "");
+    arrancar();
+    S.save();
+    render();
+  }
+
   function alternarReloj() {
     var mt = m();
     if (!mt) { U.toast("Convoca primero"); return; }
     if (enPenaltis()) { U.toast("La tanda no lleva reloj"); penaltis(); return; }
+    if (enDescanso()) { empezarParte(); return; }
     if (mt.run) {
       parar();
       log("Reloj parado", "periodo");
@@ -81,49 +142,83 @@
     S.save();
     render();
   }
-  function enPenaltis() { var mt = m(); return !!mt && mt.per === M.PER_PENALTIS; }
+  function enPenaltis() { var mt = m(); return !!mt && mt.per === M.penIndex(dur()); }
 
-  /* Fin de parte. No es un "siguiente" a ciegas: al acabar la 2ª parte y
-     la prórroga hay que decidir, y lo normal es que el partido termine
-     ahí. Por eso pregunta en vez de encadenar prórrogas él solo. */
+  /* Cambiar la duración con el partido ya convocado: si al programarlo
+     se quedó en 2 x 45 por descuido, se arregla aquí sin perder nada. */
+  function cambiarDuracion() {
+    var mt = m();
+    if (!mt) { U.toast("Convoca primero"); return; }
+    window.CB.wheel.pedirDuracion(mt.dur, function (nueva) {
+      mt.dur = nueva;
+      var e = S.ev(mt.ev);
+      if (e) e.dur = nueva;
+      S.save();
+      render();
+      U.toast("Duración: " + M.durTexto(nueva));
+    });
+  }
+
+  /* "la 2ª parte" / "el 3er cuarto": el artículo depende del formato. */
+  function femenino(i) { return /parte|[Pp]rórroga/.test(etiquetaPeriodo(i)); }
+  function conArticulo(i) {
+    return (femenino(i) ? "la " : "el ") + etiquetaPeriodo(i);
+  }
+  /* Con la contracción: "Fin de la 2ª parte", pero "Fin del 4º cuarto". */
+  function finDe(i) {
+    return "Fin " + (femenino(i) ? "de la " : "del ") + etiquetaPeriodo(i);
+  }
+
+  /* Fin de parte. No es un "siguiente" a ciegas: al acabar el tiempo
+     reglamentario y la prórroga hay que decidir, y lo normal es que el
+     partido termine ahí. Por eso pregunta en vez de encadenar
+     prórrogas él solo. Los índices salen del formato, que puede ser de
+     dos partes o de cuatro cuartos. */
   function siguientePeriodo() {
     var mt = m();
     if (!mt) return;
     if (enPenaltis()) { penaltis(); return; }
 
-    /* De la 1ª a la 2ª y de la prórroga 1 a la 2 no hay nada que decidir. */
-    if (mt.per === 0 || mt.per === 2) { avanzarA(mt.per + 1); return; }
+    var d = dur();
+    var ultima = d.partes - 1;     // última parte del tiempo reglamentario
+    var pro1 = d.partes;
+    var pro2 = d.partes + 1;
+
+    /* Entre partes, y de la prórroga 1 a la 2, no hay nada que decidir. */
+    if (mt.per < ultima) { avanzarA(mt.per + 1); return; }
+    if (mt.per === pro1) { avanzarA(pro2); return; }
 
     var empate = mt.gf === mt.gc;
     var marcador = mt.gf + " – " + mt.gc;
+    var titulo = finDe(mt.per);
 
-    if (mt.per === 1) {
+    if (mt.per === ultima) {
       if (empate) {
-        elegirOpcion("Fin de la 2ª parte", "Empate a " + mt.gf + ". ¿Cómo sigue?",
+        elegirOpcion(titulo, "Empate a " + mt.gf + ". ¿Cómo sigue?",
           ["Jugar la prórroga", "Ir directo a los penaltis", "Terminar en empate"],
           function (op) {
-            if (op === "Jugar la prórroga") avanzarA(2);
+            if (op === "Jugar la prórroga") avanzarA(pro1);
             else if (op === "Ir directo a los penaltis") irAPenaltis();
             else terminar();
           });
       } else {
-        elegirOpcion("Fin de la 2ª parte", "Vas " + marcador + ": el partido está decidido.",
+        elegirOpcion(titulo, "Vas " + marcador + ": el partido está decidido.",
           ["Finalizar el partido", "Jugar la prórroga igualmente"],
           function (op) {
             if (op === "Finalizar el partido") terminar();
-            else avanzarA(2);
+            else avanzarA(pro1);
           });
       }
       return;
     }
 
-    /* mt.per === 3: se acaba la prórroga. */
+    /* mt.per === pro2: se acaba la prórroga. */
     if (empate) {
-      elegirOpcion("Fin de la prórroga", "Seguís empatados a " + mt.gf + ".",
+      elegirOpcion(titulo, "Seguís empatados a " + mt.gf + ".",
         ["Ir a los penaltis", "Terminar en empate"],
         function (op) { if (op === "Ir a los penaltis") irAPenaltis(); else terminar(); });
     } else {
-      elegirOpcion("Fin de la prórroga", "Vas " + marcador + ": el partido está decidido.",
+      elegirOpcion(titulo, "Vas " + marcador + ": el partido está decidido.",
         ["Finalizar el partido", "Ir a los penaltis"],
         function (op) { if (op === "Finalizar el partido") terminar(); else irAPenaltis(); });
     }
@@ -131,11 +226,15 @@
 
   function avanzarA(per) {
     var mt = m();
+    var acaba = mt.per;
     parar();
-    log("Fin de " + M.PERIODOS[mt.per], "periodo");
+    /* Se anota el tiempo real al que se cerró la parte: si hubo
+       añadido, ese minuto no se pierde aunque el reloj de la parte
+       siguiente arranque en su minuto de siempre. */
+    log(finDe(acaba) + " (" + U.mmss(relojSeg()) + ")", "periodo");
     mt.per = per;
     mt.seg = 0;
-    if (per === 2) log("Comienza la prórroga", "periodo");
+    arrancarDescanso(M.descansoSeg(dur(), acaba));
     S.save();
     render();
   }
@@ -147,7 +246,7 @@
     var mt = m();
     if (!mt) return "Siguiente parte";
     if (enPenaltis()) return "Tanda de penaltis";
-    return "Fin de " + ["la 1ª parte", "la 2ª parte", "la Prórroga 1", "la Prórroga 2"][mt.per];
+    return finDe(mt.per);
   }
 
   /* ---------------------------------------------------------
@@ -228,16 +327,18 @@
         ? '<div class="penline num">' + (local ? mt.pen.a : mt.pen.b) + " – " +
           (local ? mt.pen.b : mt.pen.a) + ' <span>en penaltis</span></div>'
         : "") +
-      '<div class="clock num ' + (mt && mt.run ? "" : "stop") + '" id="mClock">' +
-        (mt ? U.mmss(BASE[mt.per] + mt.seg) : "00:00") + '</div>' +
-      '<div class="per">' + (mt && mt.run ? '<span class="live"></span>' : "") +
-        (mt ? U.esc(M.PERIODOS[mt.per]) + " · " + (mt.run ? "en juego" : mt.started ? "pausado" : "detenido")
-            : "sin convocatoria") + '</div>' +
+      '<div class="clock num ' + claseReloj(mt) + '" id="mClock">' +
+        (mt ? (enDescanso() ? textoDescanso() : U.mmss(relojSeg())) : "00:00") + '</div>' +
+      '<div class="per">' + (mt && (mt.run || enDescanso()) ? '<span class="live"></span>' : "") +
+        (mt ? U.esc(estadoPeriodo(mt)) : "sin convocatoria") + '</div>' +
       '<div class="scoreadj">' +
         '<button onclick="CB.match.corregir(-1,0)" aria-label="Quitar gol nuestro">−</button>' +
         '<span class="eyebrow">corregir</span>' +
         '<button onclick="CB.match.corregir(0,-1)" aria-label="Quitar gol rival">−</button>' +
-      '</div></div>';
+      '</div>' +
+      (mt ? '<button class="durlink" onclick="CB.match.duracion()">' +
+        U.esc(M.durTexto(dur())) + ' · cambiar</button>' : "") +
+      '</div>';
 
     if (!mt) {
       h += '<div class="grid-2 mt2">' +
@@ -255,6 +356,9 @@
     if (enPenaltis()) {
       h += '<button class="btn pri lg wide mt2" onclick="CB.match.penaltis()">' +
         U.svg("ball") + 'Tanda de penaltis</button>';
+    } else if (enDescanso()) {
+      h += '<button class="btn pri lg wide mt2" onclick="CB.match.empezarParte()">' +
+        U.svg("play") + 'Empezar ' + conArticulo(mt.per) + '</button>';
     } else {
       h += '<button class="btn ' + (mt.run ? "warn" : "pri") + ' lg wide mt2" onclick="CB.match.reloj()">' +
         U.svg(mt.run ? "pause" : "play") + (mt.run ? "Pausar" : mt.started ? "Reanudar" : "Iniciar partido") + '</button>';
@@ -297,6 +401,17 @@
 
     U.set("matchBody", h);
     pintarPanel();
+  }
+
+  function claseReloj(mt) {
+    if (!mt) return "stop";
+    if (enDescanso()) return "des";
+    return mt.run ? "" : "stop";
+  }
+  function estadoPeriodo(mt) {
+    if (enDescanso()) return "Descanso · ahora " + etiquetaPeriodo(mt.per);
+    return etiquetaPeriodo(mt.per) + " · " +
+      (mt.run ? "en juego" : mt.started ? "pausado" : "detenido");
   }
 
   function accion(icon, label, fn, cls) {
@@ -406,9 +521,14 @@
   }
 
   function nuevoPartido(id, ids) {
+    var e = S.ev(id);
     var mt = {
       ev: id, conv: ids, campo: [], banq: ids.slice(),
       per: 0, seg: 0, run: false, started: false,
+      /* Copia, no referencia: si luego se edita el calendario, el
+         partido que se está dirigiendo no cambia de duración solo. */
+      dur: M.normDur(e && e.dur),
+      br: null,
       gf: 0, gc: 0, log: [], goles: [], titulares: [],
       t: {}, st: {}, ta: {}, tr: {}, gol: {}, asi: {}, fal: {}
     };
@@ -725,8 +845,9 @@
     if (!mt) return;
     parar();
     if (!enPenaltis()) {
-      log("Fin de " + M.PERIODOS[mt.per], "periodo");
-      mt.per = M.PER_PENALTIS;
+      log(finDe(mt.per) + " (" + U.mmss(relojSeg()) + ")", "periodo");
+      mt.br = null;
+      mt.per = M.penIndex(dur());
       mt.seg = 0;
       tanda();
       log("Comienza la tanda de penaltis", "periodo");
@@ -831,6 +952,7 @@
     var mt = m();
     if (!mt) return;
     if (!sinPreguntar && !window.CB.shell.confirmar("¿Cerrar el acta y guardarla?")) return;
+    mt.br = null;   // si se cierra durante el descanso, no queda corriendo
     parar();
     log("Final del partido", "periodo");
     var e = S.ev(mt.ev) || { fecha: "", rival: "" };
@@ -839,6 +961,7 @@
       gf: mt.gf, gc: mt.gc, log: mt.log,
       goles: mt.goles || [], titulares: mt.titulares || [],
       pen: (mt.pen && mt.pen.tiros.length) ? mt.pen : null,
+      dur: M.normDur(mt.dur),
       jug: mt.conv.map(function (id) {
         var j = S.jug(id) || {};
         return {
@@ -877,7 +1000,7 @@
       ev: evId, conv: a.jug.map(function (f) { return f.j; }),
       campo: [], banq: [], per: 0, seg: 0, run: false, started: true,
       gf: a.gf, gc: a.gc, log: a.log, goles: a.goles || [], titulares: a.titulares || [],
-      pen: a.pen || null,
+      pen: a.pen || null, dur: M.normDur(a.dur), br: null,
       t: {}, st: {}, ta: {}, tr: {}, gol: {}, asi: {}, fal: {}
     };
     a.jug.forEach(function (f) {
@@ -911,6 +1034,7 @@
   window.CB.match = {
     render: render, seleccionar: seleccionar, cambiar: cambiar,
     reloj: alternarReloj, periodo: siguientePeriodo,
+    empezarParte: empezarParte, duracion: cambiarDuracion,
     convocar: convocar, alineacion: alineacion,
     gol: gol, golRival: golRival, asistencia: asistencia, cambio: cambio,
     tarjeta: tarjeta, falta: falta, nota: nota, corregir: corregir,
