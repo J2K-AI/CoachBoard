@@ -1,7 +1,11 @@
 package com.entrenador.pro.web
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.webkit.JavascriptInterface
+import android.widget.Toast
 import com.entrenador.pro.io.FileSaver
 import com.entrenador.pro.io.PagePrinter
 
@@ -32,5 +36,33 @@ class JsBridge(
     @JavascriptInterface
     fun share(name: String, mime: String, base64: String) {
         activity.runOnUiThread { FileSaver.share(activity, name, mime, base64) }
+    }
+
+    /**
+     * Abre unas coordenadas en la aplicacion de mapas del telefono.
+     *
+     * Se intenta primero el esquema `geo:`, que deja elegir entre las
+     * apps instaladas. Si el telefono no tiene ninguna, se recurre a
+     * la web. No se usa `resolveActivity` a proposito: desde Android
+     * 11 exigiria declarar `<queries>` en el manifiesto, y un
+     * try/catch resuelve lo mismo sin pedir mas visibilidad.
+     */
+    @JavascriptInterface
+    fun openMap(lat: String, lon: String, label: String) {
+        activity.runOnUiThread {
+            val punto = "$lat,$lon"
+            val nombre = Uri.encode(label.ifBlank { "Destino" })
+            val geo = Uri.parse("geo:$punto?q=$punto($nombre)")
+            try {
+                activity.startActivity(Intent(Intent.ACTION_VIEW, geo))
+            } catch (e: ActivityNotFoundException) {
+                val web = Uri.parse("https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=17/$lat/$lon")
+                try {
+                    activity.startActivity(Intent(Intent.ACTION_VIEW, web))
+                } catch (e2: ActivityNotFoundException) {
+                    Toast.makeText(activity, "No hay ninguna aplicacion de mapas", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 }

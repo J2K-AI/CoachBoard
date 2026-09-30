@@ -100,6 +100,8 @@
     users2: '<path d="M4 20c0-3 2.7-5.5 6-5.5s6 2.5 6 5.5"/><circle cx="10" cy="7.5" r="3.2"/><path d="M17 14.8c1.9.6 3 2.5 3 5.2"/><circle cx="17.4" cy="8" r="2.4"/>',
     injury: '<path d="M12 4.5v15M4.5 12h15" stroke-width="2.4"/>',
     note: '<rect x="4.5" y="3.5" width="15" height="17" rx="2"/><path d="M8 8.5h8M8 12.5h8M8 16.5h5"/>',
+    pin: '<path d="M12 21s6.5-6.1 6.5-11a6.5 6.5 0 1 0-13 0c0 4.9 6.5 11 6.5 11z"/><circle cx="12" cy="10" r="2.4"/>',
+    search: '<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 4.5 4.5"/>',
 
     /* piezas de la pizarra */
     t_player: '<circle cx="12" cy="12" r="6.5"/><path d="M12 9v6M9 12h6"/>',

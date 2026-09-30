@@ -132,6 +132,8 @@
       '<div class="dl"><span>Fecha</span><b>' + U.esc(U.fmtDateLong(e.fecha)) + '</b></div>' +
       '<div class="dl"><span>Hora</span><b>' + U.esc(e.hora || "—") + '</b></div>' +
       (e.lugar ? '<div class="dl"><span>Lugar</span><b>' + U.esc(e.lugar) + '</b></div>' : "") +
+      (e.lat ? '<button class="btn sm wide mt2" onclick="CB.agenda.mapaDe(\'' + e.id + '\')">' +
+        U.svg("pin") + 'Cómo llegar</button>' : "") +
       (e.notas ? '<p class="hint mt2">' + U.esc(e.notas) + '</p>' : "");
     window.CB.shell.openSheet(U.esc(e.tipo), body, [
       { text: "Editar", cls: "ghost", fn: function () { window.CB.shell.closeSheet(); window.CB.agenda.editar(id); } },

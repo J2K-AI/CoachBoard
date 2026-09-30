@@ -1274,6 +1274,8 @@ select{ appearance:none; -webkit-appearance:none;
     users2: '<path d="M4 20c0-3 2.7-5.5 6-5.5s6 2.5 6 5.5"/><circle cx="10" cy="7.5" r="3.2"/><path d="M17 14.8c1.9.6 3 2.5 3 5.2"/><circle cx="17.4" cy="8" r="2.4"/>',
     injury: '<path d="M12 4.5v15M4.5 12h15" stroke-width="2.4"/>',
     note: '<rect x="4.5" y="3.5" width="15" height="17" rx="2"/><path d="M8 8.5h8M8 12.5h8M8 16.5h5"/>',
+    pin: '<path d="M12 21s6.5-6.1 6.5-11a6.5 6.5 0 1 0-13 0c0 4.9 6.5 11 6.5 11z"/><circle cx="12" cy="10" r="2.4"/>',
+    search: '<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 4.5 4.5"/>',
 
     /* piezas de la pizarra */
     t_player: '<circle cx="12" cy="12" r="6.5"/><path d="M12 9v6M9 12h6"/>',
@@ -1423,6 +1425,11 @@ select{ appearance:none; -webkit-appearance:none;
     d.durDef = d.durDef ? Mo.normDur(d.durDef) : null;
     d.eventos.forEach(function (e) {
       if (isMatch(e)) e.dur = Mo.normDur(e.dur);
+      /* Antes el lugar era solo texto; ahora puede traer ubicación. */
+      if (e.lugar === undefined) e.lugar = "";
+      if (e.dir === undefined) e.dir = "";
+      if (e.lat === undefined) e.lat = "";
+      if (e.lon === undefined) e.lon = "";
     });
 
     if (d.match && !d.match.fal) d.match.fal = {};
@@ -1810,7 +1817,52 @@ select{ appearance:none; -webkit-appearance:none;
 
   /* ------------------------------------------------------------
      Campo
+
+     El campo se estira para llenar el lienzo, y no lo hace igual a lo
+     ancho que a lo alto. Por eso los 9,15 m del círculo central y de
+     la media luna del área no son un radio, sino dos: uno por eje.
+     Dibujarlos como una circunferencia hacía que la media luna se
+     metiera dentro del área en cuanto la pantalla no tenía la
+     proporción de un campo real.
+
+     Medidas reales de un campo de 105 x 68 m, en tanto por uno:
+       9,15 / 105 = 0,0871      9,15 / 68 = 0,1346
      ------------------------------------------------------------ */
+  var R_X = 9.15 / 105, R_Y = 9.15 / 68;
+
+  /* Arco de elipse trazado punto a punto. No se usa scale() porque
+     deformaría también el grosor de la línea, ni ellipse() porque no
+     está en los WebView más antiguos. */
+  function arcoElipse(g, cx, cy, rx, ry, t0, t1) {
+    var n = Math.max(12, Math.round(Math.abs(t1 - t0) / (Math.PI / 60)));
+    g.beginPath();
+    for (var i = 0; i <= n; i++) {
+      var t = t0 + (t1 - t0) * i / n;
+      var x = cx + rx * Math.cos(t), y = cy + ry * Math.sin(t);
+      if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+
+  /* Geometría del campo, aparte del dibujo para poder comprobarla.
+     `medio` es el semiángulo de la media luna: el punto en el que la
+     elipse de 9,15 m cruza la línea del área, sea cual sea la
+     resolución. Si el área es tan profunda que la elipse no llega a
+     salir, no hay media luna que dibujar. */
+  function pitchGeom(pw, ph) {
+    var g = {
+      aW: pw * 0.157, aH: ph * 0.578,      // área grande
+      gW: pw * 0.055, gH: ph * 0.265,      // área pequeña
+      sp: pw * 0.105,                       // punto de penalti
+      rx: pw * R_X, ry: ph * R_Y            // 9,15 m en cada eje
+    };
+    var d = g.aW - g.sp;                    // del penalti a la línea del área
+    g.medio = d < g.rx ? Math.acos(d / g.rx) : 0;
+    /* Dónde acaba el arco: tiene que caer justo sobre la línea. */
+    g.finX = g.sp + g.rx * Math.cos(g.medio);
+    return g;
+  }
+
   function drawPitch(g, W, H, modo) {
     var m = Math.max(7, W * 0.012), vw = W - 2 * m, vh = H - 2 * m;
     g.fillStyle = BG;
@@ -1843,16 +1895,19 @@ select{ appearance:none; -webkit-appearance:none;
       px = m; py = m; pw = vw; ph = vh;
     }
 
-    var cx = px + pw / 2, cy = py + ph / 2, R = ph * 0.13;
+    var cx = px + pw / 2, cy = py + ph / 2;
+    var G = pitchGeom(pw, ph);
     g.strokeStyle = CHALK; g.fillStyle = CHALK;
     g.lineWidth = Math.max(1.5, W / 500);
     g.strokeRect(px, py, pw, ph);
     g.beginPath(); g.moveTo(cx, py); g.lineTo(cx, py + ph); g.stroke();
-    g.beginPath(); g.arc(cx, cy, R, 0, 7); g.stroke();
+    /* El círculo central se deja redondo, como estaba: es el aspecto
+       de siempre de una pizarra y nadie se ha quejado de él. Lo que
+       no encajaba era la media luna, y esa sí va como elipse. */
+    g.beginPath(); g.arc(cx, cy, ph * 0.13, 0, 7); g.stroke();
     g.beginPath(); g.arc(cx, cy, Math.max(2, W / 300), 0, 7); g.fill();
 
-    var aW = pw * 0.157, aH = ph * 0.578, gW = pw * 0.055, gH = ph * 0.265,
-        sp = pw * 0.105, rad = 53 * Math.PI / 180;
+    var aW = G.aW, aH = G.aH, gW = G.gW, gH = G.gH, sp = G.sp;
     g.strokeRect(px, cy - aH / 2, aW, aH);
     g.strokeRect(px + pw - aW, cy - aH / 2, aW, aH);
     g.strokeRect(px, cy - gH / 2, gW, gH);
@@ -1860,8 +1915,10 @@ select{ appearance:none; -webkit-appearance:none;
     [px + sp, px + pw - sp].forEach(function (sx) {
       g.beginPath(); g.arc(sx, cy, Math.max(2, W / 300), 0, 7); g.fill();
     });
-    g.beginPath(); g.arc(px + sp, cy, R, -rad, rad); g.stroke();
-    g.beginPath(); g.arc(px + pw - sp, cy, R, Math.PI - rad, Math.PI + rad); g.stroke();
+    if (G.medio > 0.01) {
+      arcoElipse(g, px + sp, cy, G.rx, G.ry, -G.medio, G.medio);
+      arcoElipse(g, px + pw - sp, cy, G.rx, G.ry, Math.PI - G.medio, Math.PI + G.medio);
+    }
 
     var gd = Math.max(4, pw * 0.012);
     g.strokeRect(px - gd, cy - ph * 0.09, gd, ph * 0.18);
@@ -2157,7 +2214,8 @@ select{ appearance:none; -webkit-appearance:none;
   window.CB.pitch = {
     drawPitch: drawPitch, token: token, arrowHead: arrowHead,
     drawItem: drawItem, drawScene: drawScene, drawSelection: drawSelection,
-    itemRadius: itemRadius, handlePos: handlePos, baseSize: baseSize
+    itemRadius: itemRadius, handlePos: handlePos, baseSize: baseSize,
+    pitchGeom: pitchGeom
   };
 })();
 
@@ -3150,6 +3208,8 @@ select{ appearance:none; -webkit-appearance:none;
       '<div class="dl"><span>Fecha</span><b>' + U.esc(U.fmtDateLong(e.fecha)) + '</b></div>' +
       '<div class="dl"><span>Hora</span><b>' + U.esc(e.hora || "—") + '</b></div>' +
       (e.lugar ? '<div class="dl"><span>Lugar</span><b>' + U.esc(e.lugar) + '</b></div>' : "") +
+      (e.lat ? '<button class="btn sm wide mt2" onclick="CB.agenda.mapaDe(\'' + e.id + '\')">' +
+        U.svg("pin") + 'Cómo llegar</button>' : "") +
       (e.notas ? '<p class="hint mt2">' + U.esc(e.notas) + '</p>' : "");
     window.CB.shell.openSheet(U.esc(e.tipo), body, [
       { text: "Editar", cls: "ghost", fn: function () { window.CB.shell.closeSheet(); window.CB.agenda.editar(id); } },
@@ -3434,6 +3494,173 @@ select{ appearance:none; -webkit-appearance:none;
 
 </script>
 <script>
+/* ===== js/features/lugares.js ===== */
+/* =============================================================
+   CoachBoard · features/lugares.js
+   Buscador de campos e instalaciones.
+
+   Usa Nominatim, el buscador de OpenStreetMap: no hace falta clave ni
+   cuenta de nadie. A cambio hay que ser buen vecino con su servicio,
+   así que solo se consulta cuando el entrenador pulsa Buscar, nunca
+   tecla a tecla, y los resultados llevan su atribución.
+
+   Es lo único de toda la aplicación que necesita internet. Si no hay
+   red, se avisa y se puede escribir el nombre a mano como siempre.
+   ============================================================= */
+(function () {
+  "use strict";
+  var U = window.CB.util;
+
+  var API = "https://nominatim.openstreetmap.org/search";
+  var ESPERA = 10000;                 // corta la consulta si tarda demasiado
+  var destino = null;                 // { valor, onOk } de la edición en curso
+  var ultimos = [];
+
+  function url(texto) {
+    return API + "?format=jsonv2&limit=8&addressdetails=1&accept-language=es" +
+      "&q=" + encodeURIComponent(texto);
+  }
+
+  /* Nominatim devuelve el nombre en `name` y la dirección desglosada.
+     Se arma algo que un entrenador reconozca: el campo y el pueblo. */
+  function limpiar(r) {
+    var a = r.address || {};
+    var nombre = r.name || (r.display_name || "").split(",")[0] || "Sin nombre";
+    var pueblo = a.city || a.town || a.village || a.municipality || a.county || "";
+    var resto = (r.display_name || "").split(",").slice(1).join(",").trim();
+    return {
+      lugar: nombre,
+      dir: resto || pueblo,
+      pueblo: pueblo,
+      lat: String(r.lat || ""),
+      lon: String(r.lon || "")
+    };
+  }
+
+  function elegir(actual, onOk) {
+    destino = { valor: actual || {}, onOk: onOk };
+    ultimos = [];
+    pintar(actual && actual.lugar ? actual.lugar : "", null);
+  }
+
+  function pintar(texto, estado) {
+    var v = destino ? destino.valor : {};
+    var cuerpo =
+      '<div class="row-x" style="gap:8px">' +
+        '<input id="lqBusca" placeholder="Campo Municipal, polideportivo…" ' +
+          'value="' + U.esc(texto || "") + '" style="flex:1" ' +
+          'onkeydown="if(event.key===\'Enter\'){event.preventDefault();CB.lugares.buscar();}">' +
+        '<button class="btn" onclick="CB.lugares.buscar()">' + U.svg("search") + '</button>' +
+      '</div>';
+
+    if (estado === "buscando") {
+      cuerpo += '<p class="hint mt2">Buscando…</p>';
+    } else if (estado === "sinred") {
+      cuerpo += '<div class="empty mt2"><b>Sin conexión</b>' +
+        'No se ha podido consultar el buscador. Escribe el nombre a mano y guarda: ' +
+        'podrás añadir la ubicación más adelante.</div>';
+    } else if (estado === "vacio") {
+      cuerpo += '<div class="empty mt2"><b>Ningún resultado</b>' +
+        'Prueba con el nombre del pueblo detrás, por ejemplo "Campo Municipal, Telde".</div>';
+    } else if (ultimos.length) {
+      cuerpo += '<div class="plist mt2">' + ultimos.map(function (r, i) {
+        return '<div class="prow tap" onclick="CB.lugares.tomar(' + i + ')">' +
+          '<span class="num-badge sm">' + U.svg("pin") + '</span>' +
+          '<div class="pmain"><div class="nm">' + U.esc(r.lugar) + '</div>' +
+          '<div class="sub">' + U.esc(r.dir) + '</div></div></div>';
+      }).join("") + '</div>' +
+      '<p class="hint mt1">Resultados de OpenStreetMap.</p>';
+    } else {
+      cuerpo += '<p class="hint mt2">Escribe el nombre del campo y pulsa buscar. ' +
+        'Al elegirlo se guarda su ubicación y podrás abrirla en el mapa del móvil.</p>';
+    }
+
+    if (v.lugar) {
+      cuerpo += '<div class="section mt3"><span class="eyebrow">Guardado ahora</span></div>' +
+        '<div class="prow"><span class="num-badge sm">' + U.svg("pin") + '</span>' +
+        '<div class="pmain"><div class="nm">' + U.esc(v.lugar) + '</div>' +
+        '<div class="sub">' + U.esc(v.dir || (v.lat ? "con ubicación" : "sin ubicación")) + '</div></div></div>';
+    }
+
+    window.CB.shell.openSheet("Campo o instalación", cuerpo, [
+      { text: "Cancelar", cls: "ghost", fn: function () { destino = null; window.CB.shell.closeSheet(); } },
+      { text: "Usar lo escrito", cls: "", fn: aMano }
+    ]);
+    var i = U.$("lqBusca");
+    if (i) i.focus();
+  }
+
+  /* Escribirlo a mano sigue valiendo: hay campos que no están en
+     ningún mapa, y sin red esto es lo único que funciona. */
+  function aMano() {
+    var t = (U.val("lqBusca") || "").trim();
+    if (!t) { U.toast("Escribe un nombre"); return; }
+    entregar({ lugar: t, dir: "", lat: "", lon: "" });
+  }
+
+  function buscar() {
+    var t = (U.val("lqBusca") || "").trim();
+    if (t.length < 3) { U.toast("Escribe al menos tres letras"); return; }
+    pintar(t, "buscando");
+
+    var corta = null, ctrl = null;
+    try {
+      ctrl = new AbortController();
+      corta = setTimeout(function () { ctrl.abort(); }, ESPERA);
+    } catch (e) { ctrl = null; }
+
+    fetch(url(t), ctrl ? { signal: ctrl.signal } : {})
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (lista) {
+        if (corta) clearTimeout(corta);
+        if (!destino) return;                      // se cerró mientras tanto
+        ultimos = (lista || []).map(limpiar);
+        pintar(t, ultimos.length ? null : "vacio");
+      })
+      .catch(function () {
+        if (corta) clearTimeout(corta);
+        if (!destino) return;
+        ultimos = [];
+        pintar(t, "sinred");
+      });
+  }
+
+  function tomar(i) {
+    var r = ultimos[i];
+    if (r) entregar(r);
+  }
+
+  function entregar(v) {
+    var fn = destino ? destino.onOk : null;
+    destino = null;
+    window.CB.shell.closeSheet();
+    if (fn) fn(v);
+  }
+
+  /* ---------------------------------------------------------
+     Abrir en el mapa del dispositivo
+     --------------------------------------------------------- */
+  function abrir(lat, lon, nombre) {
+    if (!lat || !lon) { U.toast("Este sitio no tiene ubicación guardada"); return; }
+    if (typeof window.abrirMapa === "function") {
+      window.abrirMapa(String(lat), String(lon), String(nombre || ""));
+      return;
+    }
+    /* En el navegador del PC no hay app de mapas: se abre la web. */
+    window.open("https://www.openstreetmap.org/?mlat=" + encodeURIComponent(lat) +
+      "&mlon=" + encodeURIComponent(lon) + "#map=17/" + lat + "/" + lon, "_blank");
+  }
+
+  window.CB.lugares = {
+    elegir: elegir, buscar: buscar, tomar: tomar, abrir: abrir, limpiar: limpiar
+  };
+})();
+
+</script>
+<script>
 /* ===== js/features/agenda.js ===== */
 /* =============================================================
    CoachBoard · features/agenda.js
@@ -3504,11 +3731,13 @@ select{ appearance:none; -webkit-appearance:none;
     return {
       tipo: U.val("eTipo"), fecha: U.val("eFec"), hora: U.val("eHor"),
       rival: U.val("eRiv").trim(), cond: U.val("eCon"),
-      lugar: U.val("eLug").trim(), comp: U.val("eCom").trim(), notas: U.val("eNot"),
-      dur: durActual
+      comp: U.val("eCom").trim(), notas: U.val("eNot"),
+      dur: durActual,
+      lugar: sitio.lugar, dir: sitio.dir, lat: sitio.lat, lon: sitio.lon
     };
   }
   var durActual = null;
+  var sitio = { lugar: "", dir: "", lat: "", lon: "" };
 
   function duracion() {
     var b = borrador();
@@ -3518,9 +3747,22 @@ select{ appearance:none; -webkit-appearance:none;
     });
   }
 
+  function lugar() {
+    var b = borrador();
+    window.CB.lugares.elegir(sitio, function (nuevo) {
+      b.lugar = nuevo.lugar; b.dir = nuevo.dir;
+      b.lat = nuevo.lat; b.lon = nuevo.lon;
+      abrir(b, editandoId);
+    });
+  }
+
   function abrir(e, id) {
     editandoId = id || null;
     durActual = M.normDur(e.dur);
+    sitio = {
+      lugar: e.lugar || "", dir: e.dir || "",
+      lat: e.lat || "", lon: e.lon || ""
+    };
 
     var body =
       '<label class="f">Tipo de sesión</label>' +
@@ -3539,7 +3781,15 @@ select{ appearance:none; -webkit-appearance:none;
         '</select></div>' +
         '<div><label class="f">Competición</label><input id="eCom" value="' + U.esc(e.comp) + '"></div>' +
       '</div>' +
-      '<label class="f">Lugar</label><input id="eLug" value="' + U.esc(e.lugar) + '">' +
+      '<label class="f">Lugar</label>' +
+      '<button class="btn wide outline" onclick="CB.agenda.lugar()">' + U.svg("pin") +
+        '<span class="lbl">' + U.esc(sitio.lugar || "Buscar el campo") + '</span></button>' +
+      (sitio.lat
+        ? '<button class="btn sm ghost wide mt1" onclick="CB.agenda.verMapa()">' +
+            U.svg("pin") + 'Abrir en el mapa</button>'
+        : sitio.lugar
+          ? '<p class="hint">Sin ubicación guardada: solo el nombre.</p>'
+          : "") +
       '<label class="f">Duración del partido</label>' +
       '<button class="btn wide outline" onclick="CB.agenda.duracion()">' + U.svg("clock") +
         '<span class="lbl">' + M.durTexto(durActual) +
@@ -3568,8 +3818,9 @@ select{ appearance:none; -webkit-appearance:none;
           id: id || U.uid(),
           tipo: U.val("eTipo"), fecha: U.val("eFec"), hora: U.val("eHor"),
           rival: U.val("eRiv").trim(), cond: U.val("eCon"),
-          lugar: U.val("eLug").trim(), comp: U.val("eCom").trim(), notas: U.val("eNot"),
-          dur: M.normDur(durActual)
+          comp: U.val("eCom").trim(), notas: U.val("eNot"),
+          dur: M.normDur(durActual),
+          lugar: sitio.lugar, dir: sitio.dir, lat: sitio.lat, lon: sitio.lon
         };
         if (!o.fecha) { U.toast("Elige la fecha"); return; }
         if (S.isMatch(o)) window.DB.durDef = o.dur;   // se recuerda para el siguiente
@@ -3585,7 +3836,20 @@ select{ appearance:none; -webkit-appearance:none;
     window.CB.shell.openSheet(id ? "Editar sesión" : "Nueva sesión", body, botones);
   }
 
-  window.CB.agenda = { render: render, editar: editar, duracion: duracion };
+  function verMapa() {
+    window.CB.lugares.abrir(sitio.lat, sitio.lon, sitio.lugar);
+  }
+
+  /* Desde la ficha de la sesión, sin pasar por el formulario. */
+  function mapaDe(id) {
+    var e = S.ev(id);
+    if (e) window.CB.lugares.abrir(e.lat, e.lon, e.lugar);
+  }
+
+  window.CB.agenda = {
+    render: render, editar: editar, duracion: duracion,
+    lugar: lugar, verMapa: verMapa, mapaDe: mapaDe
+  };
 })();
 
 </script>

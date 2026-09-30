@@ -35,6 +35,11 @@ object BridgeScript {
             } catch (e) { console.log('download', e); }
           };
 
+          window.abrirMapa = function (lat, lon, nombre) {
+            try { AndroidApp.openMap(String(lat), String(lon), String(nombre || '')); }
+            catch (e) { console.log('mapa', e); }
+          };
+
           window.compartirArchivo = function (name, blob) {
             var r = new FileReader();
             r.onloadend = function () {

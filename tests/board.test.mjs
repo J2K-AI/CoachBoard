@@ -189,6 +189,57 @@ export default async function (browser, url, etiqueta = "pizarra") {
     if (!d.some(i => i.rot === 45)) throw new Error("se perdió la rotación al cargar");
   });
 
+  await paso("la media luna acaba justo en la línea del área", async () => {
+    /* El fallo: el arco se trazaba con un ángulo fijo de 53°, que solo
+       vale si el lienzo tiene la proporción de un campo real. En
+       cualquier otra pantalla se metía dentro del área. */
+    const casos = await pagina.evaluate(() => {
+      const tam = [[1184, 541], [412, 260], [900, 300], [640, 640], [1600, 400], [360, 800]];
+      return tam.map(([w, h]) => {
+        const G = CB.pitch.pitchGeom(w, h);
+        return { w, h, error: G.medio > 0 ? +(G.finX - G.aW).toFixed(6) : null,
+                 grados: +(G.medio * 180 / Math.PI).toFixed(1) };
+      });
+    });
+    const malos = casos.filter(c => c.error === null || Math.abs(c.error) > 0.001);
+    if (malos.length) throw new Error("no encaja en: " + JSON.stringify(malos));
+  });
+
+  await paso("la media luna no pinta nada dentro del área", async () => {
+    /* Comprobación sobre los píxeles de verdad: en la franja de la
+       media luna, entre el área pequeña y la línea del área grande, no
+       puede haber ni un píxel de cal. */
+    const dentro = await pagina.evaluate(() => {
+      const c = document.createElement("canvas");
+      const salidas = [];
+      [[1184, 541], [900, 300], [360, 800]].forEach(([w, h]) => {
+        c.width = w; c.height = h;
+        const g = c.getContext("2d");
+        CB.pitch.drawPitch(g, w, h, "Completo");
+        const m = Math.max(7, w * 0.012), pw = w - 2 * m, ph = h - 2 * m;
+        const G = CB.pitch.pitchGeom(pw, ph);
+        const cy = Math.round(m + ph / 2);
+        const x0 = Math.round(m + G.gW + 4);          // tras el área pequeña
+        const x1 = Math.round(m + G.aW - 3);          // antes de la línea del área
+        const y0 = Math.round(cy - G.ry * 0.95), y1 = Math.round(cy + G.ry * 0.95);
+        if (x1 <= x0) return;
+        const ancho = x1 - x0;
+        const d = g.getImageData(x0, y0, ancho, y1 - y0).data;
+        /* El punto de penalti cae en esta franja y es cal legítima. */
+        const spx = m + G.sp, rPunto = Math.max(2, w / 300) + 3;
+        let cal = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const p = i / 4, x = x0 + (p % ancho), y = y0 + Math.floor(p / ancho);
+          if (Math.hypot(x - spx, y - cy) <= rPunto) continue;
+          if (d[i] > 190 && d[i + 1] > 200 && d[i + 2] > 190) cal++;
+        }
+        if (cal) salidas.push({ w, h, pixeles: cal });
+      });
+      return salidas;
+    });
+    if (dentro.length) throw new Error("cal dentro del área: " + JSON.stringify(dentro));
+  });
+
   await paso("exportar la pizarra produce un PNG", async () => {
     const ok = await pagina.evaluate(() => new Promise(res => {
       const c = document.createElement("canvas");

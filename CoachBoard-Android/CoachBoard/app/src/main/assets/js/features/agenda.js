@@ -67,11 +67,13 @@
     return {
       tipo: U.val("eTipo"), fecha: U.val("eFec"), hora: U.val("eHor"),
       rival: U.val("eRiv").trim(), cond: U.val("eCon"),
-      lugar: U.val("eLug").trim(), comp: U.val("eCom").trim(), notas: U.val("eNot"),
-      dur: durActual
+      comp: U.val("eCom").trim(), notas: U.val("eNot"),
+      dur: durActual,
+      lugar: sitio.lugar, dir: sitio.dir, lat: sitio.lat, lon: sitio.lon
     };
   }
   var durActual = null;
+  var sitio = { lugar: "", dir: "", lat: "", lon: "" };
 
   function duracion() {
     var b = borrador();
@@ -81,9 +83,22 @@
     });
   }
 
+  function lugar() {
+    var b = borrador();
+    window.CB.lugares.elegir(sitio, function (nuevo) {
+      b.lugar = nuevo.lugar; b.dir = nuevo.dir;
+      b.lat = nuevo.lat; b.lon = nuevo.lon;
+      abrir(b, editandoId);
+    });
+  }
+
   function abrir(e, id) {
     editandoId = id || null;
     durActual = M.normDur(e.dur);
+    sitio = {
+      lugar: e.lugar || "", dir: e.dir || "",
+      lat: e.lat || "", lon: e.lon || ""
+    };
 
     var body =
       '<label class="f">Tipo de sesión</label>' +
@@ -102,7 +117,15 @@
         '</select></div>' +
         '<div><label class="f">Competición</label><input id="eCom" value="' + U.esc(e.comp) + '"></div>' +
       '</div>' +
-      '<label class="f">Lugar</label><input id="eLug" value="' + U.esc(e.lugar) + '">' +
+      '<label class="f">Lugar</label>' +
+      '<button class="btn wide outline" onclick="CB.agenda.lugar()">' + U.svg("pin") +
+        '<span class="lbl">' + U.esc(sitio.lugar || "Buscar el campo") + '</span></button>' +
+      (sitio.lat
+        ? '<button class="btn sm ghost wide mt1" onclick="CB.agenda.verMapa()">' +
+            U.svg("pin") + 'Abrir en el mapa</button>'
+        : sitio.lugar
+          ? '<p class="hint">Sin ubicación guardada: solo el nombre.</p>'
+          : "") +
       '<label class="f">Duración del partido</label>' +
       '<button class="btn wide outline" onclick="CB.agenda.duracion()">' + U.svg("clock") +
         '<span class="lbl">' + M.durTexto(durActual) +
@@ -131,8 +154,9 @@
           id: id || U.uid(),
           tipo: U.val("eTipo"), fecha: U.val("eFec"), hora: U.val("eHor"),
           rival: U.val("eRiv").trim(), cond: U.val("eCon"),
-          lugar: U.val("eLug").trim(), comp: U.val("eCom").trim(), notas: U.val("eNot"),
-          dur: M.normDur(durActual)
+          comp: U.val("eCom").trim(), notas: U.val("eNot"),
+          dur: M.normDur(durActual),
+          lugar: sitio.lugar, dir: sitio.dir, lat: sitio.lat, lon: sitio.lon
         };
         if (!o.fecha) { U.toast("Elige la fecha"); return; }
         if (S.isMatch(o)) window.DB.durDef = o.dur;   // se recuerda para el siguiente
@@ -148,5 +172,18 @@
     window.CB.shell.openSheet(id ? "Editar sesión" : "Nueva sesión", body, botones);
   }
 
-  window.CB.agenda = { render: render, editar: editar, duracion: duracion };
+  function verMapa() {
+    window.CB.lugares.abrir(sitio.lat, sitio.lon, sitio.lugar);
+  }
+
+  /* Desde la ficha de la sesión, sin pasar por el formulario. */
+  function mapaDe(id) {
+    var e = S.ev(id);
+    if (e) window.CB.lugares.abrir(e.lat, e.lon, e.lugar);
+  }
+
+  window.CB.agenda = {
+    render: render, editar: editar, duracion: duracion,
+    lugar: lugar, verMapa: verMapa, mapaDe: mapaDe
+  };
 })();

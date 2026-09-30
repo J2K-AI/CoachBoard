@@ -69,9 +69,19 @@ export default async function (browser, url, etiqueta = "aplicación") {
 
   await paso("calendario: crear, editar y eliminar", async () => {
     await pagina.evaluate(() => { CB.shell.go("agenda"); CB.agenda.editar(null, "Entrenamiento"); });
-    await pagina.fill("#eLug", "Campo de prueba");
+    await pagina.waitForTimeout(200);
+    /* El lugar ya no es un campo de texto: se elige en su buscador, y
+       "Usar lo escrito" permite guardarlo a mano como siempre. */
+    await pagina.evaluate(() => CB.agenda.lugar());
+    await pagina.waitForTimeout(200);
+    await pagina.fill("#lqBusca", "Campo de prueba");
+    await pagina.evaluate(() => document.querySelectorAll("#sheetFoot .btn")[1].click());
+    await pagina.waitForTimeout(250);
     await pagina.evaluate(() => document.querySelectorAll("#sheetFoot .btn")[1].click());
     if (await pagina.evaluate(() => DB.eventos.length) !== 1) throw new Error("no se creó");
+    if (await pagina.evaluate(() => DB.eventos[0].lugar) !== "Campo de prueba") {
+      throw new Error("no guardó el lugar escrito a mano");
+    }
     const id = await pagina.evaluate(() => DB.eventos[0].id);
     await pagina.evaluate(i => CB.agenda.editar(i), id);
     await pagina.fill("#eRiv", "Rival X");
@@ -472,6 +482,97 @@ export default async function (browser, url, etiqueta = "aplicación") {
     if (!t.includes("4º cuarto")) throw new Error("al acabar el último no ofrece nada: " + t);
     await pagina.evaluate(() => CB.shell.closeSheet());
   });
+
+  // ---------------------------------------------------------------
+  // Buscador de campos
+  // ---------------------------------------------------------------
+  const RESPUESTA = [
+    {
+      name: "Campo Municipal de Jinámar", lat: "28.0421", lon: "-15.4133",
+      display_name: "Campo Municipal de Jinámar, Telde, Las Palmas, Canarias, España",
+      address: { town: "Telde", province: "Las Palmas" }
+    },
+    {
+      name: "Estadio de Gran Canaria", lat: "28.1000", lon: "-15.4566",
+      display_name: "Estadio de Gran Canaria, Las Palmas de Gran Canaria, España",
+      address: { city: "Las Palmas de Gran Canaria" }
+    }
+  ];
+
+  await paso("campos: buscar y elegir guarda nombre y ubicación", async () => {
+    await pagina.route("**/nominatim.openstreetmap.org/**", r =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(RESPUESTA) }));
+
+    await pagina.evaluate(() => { CB.shell.go("agenda"); CB.agenda.editar(null, "Partido"); });
+    await pagina.waitForTimeout(200);
+    await pagina.evaluate(() => CB.agenda.lugar());
+    await pagina.waitForTimeout(200);
+    await pagina.fill("#lqBusca", "campo municipal jinamar");
+    await pagina.evaluate(() => CB.lugares.buscar());
+    await pagina.waitForTimeout(500);
+
+    const filas = await pagina.evaluate(() =>
+      [...document.querySelectorAll("#sheetBody .prow .nm")].map(n => n.textContent));
+    if (filas.length !== 2) throw new Error("resultados: " + JSON.stringify(filas));
+    if (!filas[0].includes("Jinámar")) throw new Error("el primero es: " + filas[0]);
+    const atrib = await pagina.locator("#sheetBody").innerText();
+    if (!atrib.includes("OpenStreetMap")) throw new Error("falta la atribución");
+
+    await pagina.evaluate(() => document.querySelectorAll("#sheetBody .prow")[0].click());
+    await pagina.waitForTimeout(300);
+    const t = await pagina.evaluate(() =>
+      document.querySelector('#sheetBody .btn[onclick*="agenda.lugar"]').innerText);
+    if (!t.includes("Jinámar")) throw new Error("el formulario dice: " + t);
+
+    await pagina.evaluate(() => document.querySelectorAll("#sheetFoot .btn")[1].click());
+    await pagina.waitForTimeout(250);
+    const ev = await pagina.evaluate(() => DB.eventos.filter(e => /Jinámar/.test(e.lugar))[0]);
+    if (!ev) throw new Error("no se guardó el evento");
+    if (ev.lat !== "28.0421" || ev.lon !== "-15.4133") throw new Error(JSON.stringify(ev));
+    if (!ev.dir) throw new Error("sin dirección");
+  });
+
+  await paso("campos: sin conexión avisa y deja escribirlo a mano", async () => {
+    await pagina.route("**/nominatim.openstreetmap.org/**", r => r.abort("failed"));
+    await pagina.evaluate(() => { CB.shell.go("agenda"); CB.agenda.editar(null, "Partido"); });
+    await pagina.waitForTimeout(200);
+    await pagina.evaluate(() => CB.agenda.lugar());
+    await pagina.waitForTimeout(200);
+    await pagina.fill("#lqBusca", "campo que no existe");
+    await pagina.evaluate(() => CB.lugares.buscar());
+    await pagina.waitForTimeout(600);
+    const t = await pagina.locator("#sheetBody").innerText();
+    if (!t.toLowerCase().includes("sin conexión")) throw new Error("no avisa: " + t);
+    /* Y aun así se puede guardar el nombre escrito. */
+    await pagina.evaluate(() => document.querySelectorAll("#sheetFoot .btn")[1].click());
+    await pagina.waitForTimeout(250);
+    const et = await pagina.evaluate(() =>
+      document.querySelector('#sheetBody .btn[onclick*="agenda.lugar"]').innerText);
+    if (!et.includes("campo que no existe")) throw new Error("no lo guardó: " + et);
+    await pagina.evaluate(() => CB.shell.closeSheet());
+  }, /ERR_FAILED|Failed to load resource/);
+
+  await paso("campos: sin ubicación no se ofrece el mapa", async () => {
+    const hay = await pagina.evaluate(() => {
+      CB.agenda.editar(null, "Partido");
+      return !!document.querySelector('#sheetBody .btn[onclick*="verMapa"]');
+    });
+    if (hay) throw new Error("ofrece mapa sin coordenadas");
+    await pagina.evaluate(() => CB.shell.closeSheet());
+  });
+
+  await paso("campos: cómo llegar usa el puente nativo si existe", async () => {
+    const r = await pagina.evaluate(() => {
+      let visto = null;
+      window.abrirMapa = (lat, lon, n) => { visto = [lat, lon, n]; };
+      CB.lugares.abrir("28.0421", "-15.4133", "Campo Municipal de Jinámar");
+      delete window.abrirMapa;
+      return visto;
+    });
+    if (!r || r[0] !== "28.0421" || !r[2].includes("Jinámar")) throw new Error(JSON.stringify(r));
+  });
+
+  await pagina.unroute("**/nominatim.openstreetmap.org/**");
 
   await paso("navegación: todas las secciones responden", async () => {
     for (const v of ["home", "squad", "agenda", "att", "match", "board", "tac"]) {

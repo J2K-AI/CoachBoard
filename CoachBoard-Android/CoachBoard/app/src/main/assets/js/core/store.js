@@ -76,6 +76,11 @@
     d.durDef = d.durDef ? Mo.normDur(d.durDef) : null;
     d.eventos.forEach(function (e) {
       if (isMatch(e)) e.dur = Mo.normDur(e.dur);
+      /* Antes el lugar era solo texto; ahora puede traer ubicación. */
+      if (e.lugar === undefined) e.lugar = "";
+      if (e.dir === undefined) e.dir = "";
+      if (e.lat === undefined) e.lat = "";
+      if (e.lon === undefined) e.lon = "";
     });
 
     if (d.match && !d.match.fal) d.match.fal = {};

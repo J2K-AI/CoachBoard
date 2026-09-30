@@ -16,7 +16,52 @@
 
   /* ------------------------------------------------------------
      Campo
+
+     El campo se estira para llenar el lienzo, y no lo hace igual a lo
+     ancho que a lo alto. Por eso los 9,15 m del círculo central y de
+     la media luna del área no son un radio, sino dos: uno por eje.
+     Dibujarlos como una circunferencia hacía que la media luna se
+     metiera dentro del área en cuanto la pantalla no tenía la
+     proporción de un campo real.
+
+     Medidas reales de un campo de 105 x 68 m, en tanto por uno:
+       9,15 / 105 = 0,0871      9,15 / 68 = 0,1346
      ------------------------------------------------------------ */
+  var R_X = 9.15 / 105, R_Y = 9.15 / 68;
+
+  /* Arco de elipse trazado punto a punto. No se usa scale() porque
+     deformaría también el grosor de la línea, ni ellipse() porque no
+     está en los WebView más antiguos. */
+  function arcoElipse(g, cx, cy, rx, ry, t0, t1) {
+    var n = Math.max(12, Math.round(Math.abs(t1 - t0) / (Math.PI / 60)));
+    g.beginPath();
+    for (var i = 0; i <= n; i++) {
+      var t = t0 + (t1 - t0) * i / n;
+      var x = cx + rx * Math.cos(t), y = cy + ry * Math.sin(t);
+      if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+
+  /* Geometría del campo, aparte del dibujo para poder comprobarla.
+     `medio` es el semiángulo de la media luna: el punto en el que la
+     elipse de 9,15 m cruza la línea del área, sea cual sea la
+     resolución. Si el área es tan profunda que la elipse no llega a
+     salir, no hay media luna que dibujar. */
+  function pitchGeom(pw, ph) {
+    var g = {
+      aW: pw * 0.157, aH: ph * 0.578,      // área grande
+      gW: pw * 0.055, gH: ph * 0.265,      // área pequeña
+      sp: pw * 0.105,                       // punto de penalti
+      rx: pw * R_X, ry: ph * R_Y            // 9,15 m en cada eje
+    };
+    var d = g.aW - g.sp;                    // del penalti a la línea del área
+    g.medio = d < g.rx ? Math.acos(d / g.rx) : 0;
+    /* Dónde acaba el arco: tiene que caer justo sobre la línea. */
+    g.finX = g.sp + g.rx * Math.cos(g.medio);
+    return g;
+  }
+
   function drawPitch(g, W, H, modo) {
     var m = Math.max(7, W * 0.012), vw = W - 2 * m, vh = H - 2 * m;
     g.fillStyle = BG;
@@ -49,16 +94,19 @@
       px = m; py = m; pw = vw; ph = vh;
     }
 
-    var cx = px + pw / 2, cy = py + ph / 2, R = ph * 0.13;
+    var cx = px + pw / 2, cy = py + ph / 2;
+    var G = pitchGeom(pw, ph);
     g.strokeStyle = CHALK; g.fillStyle = CHALK;
     g.lineWidth = Math.max(1.5, W / 500);
     g.strokeRect(px, py, pw, ph);
     g.beginPath(); g.moveTo(cx, py); g.lineTo(cx, py + ph); g.stroke();
-    g.beginPath(); g.arc(cx, cy, R, 0, 7); g.stroke();
+    /* El círculo central se deja redondo, como estaba: es el aspecto
+       de siempre de una pizarra y nadie se ha quejado de él. Lo que
+       no encajaba era la media luna, y esa sí va como elipse. */
+    g.beginPath(); g.arc(cx, cy, ph * 0.13, 0, 7); g.stroke();
     g.beginPath(); g.arc(cx, cy, Math.max(2, W / 300), 0, 7); g.fill();
 
-    var aW = pw * 0.157, aH = ph * 0.578, gW = pw * 0.055, gH = ph * 0.265,
-        sp = pw * 0.105, rad = 53 * Math.PI / 180;
+    var aW = G.aW, aH = G.aH, gW = G.gW, gH = G.gH, sp = G.sp;
     g.strokeRect(px, cy - aH / 2, aW, aH);
     g.strokeRect(px + pw - aW, cy - aH / 2, aW, aH);
     g.strokeRect(px, cy - gH / 2, gW, gH);
@@ -66,8 +114,10 @@
     [px + sp, px + pw - sp].forEach(function (sx) {
       g.beginPath(); g.arc(sx, cy, Math.max(2, W / 300), 0, 7); g.fill();
     });
-    g.beginPath(); g.arc(px + sp, cy, R, -rad, rad); g.stroke();
-    g.beginPath(); g.arc(px + pw - sp, cy, R, Math.PI - rad, Math.PI + rad); g.stroke();
+    if (G.medio > 0.01) {
+      arcoElipse(g, px + sp, cy, G.rx, G.ry, -G.medio, G.medio);
+      arcoElipse(g, px + pw - sp, cy, G.rx, G.ry, Math.PI - G.medio, Math.PI + G.medio);
+    }
 
     var gd = Math.max(4, pw * 0.012);
     g.strokeRect(px - gd, cy - ph * 0.09, gd, ph * 0.18);
@@ -363,6 +413,7 @@
   window.CB.pitch = {
     drawPitch: drawPitch, token: token, arrowHead: arrowHead,
     drawItem: drawItem, drawScene: drawScene, drawSelection: drawSelection,
-    itemRadius: itemRadius, handlePos: handlePos, baseSize: baseSize
+    itemRadius: itemRadius, handlePos: handlePos, baseSize: baseSize,
+    pitchGeom: pitchGeom
   };
 })();

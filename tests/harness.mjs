@@ -29,7 +29,12 @@ export function crearRunner(titulo, errores, pagina) {
   console.log(`\n── ${titulo} ──`);
 
   return {
-    async paso(nombre, fn) {
+    /* `ignorar` es una expresión regular para el ruido que el propio
+       navegador escribe en consola y que la prueba provoca a
+       propósito: por ejemplo un ERR_FAILED al comprobar que la
+       aplicación aguanta quedarse sin red. Se usa con cuentagotas:
+       cualquier otro mensaje de error sigue tumbando la prueba. */
+    async paso(nombre, fn, ignorar) {
       const antes = errores.length;
       try {
         await fn();
@@ -37,7 +42,8 @@ export function crearRunner(titulo, errores, pagina) {
         errores.push(`PASO "${nombre}": ${e.message}`);
       }
       await pagina.waitForTimeout(120);
-      const nuevos = errores.slice(antes);
+      let nuevos = errores.slice(antes);
+      if (ignorar) nuevos = nuevos.filter(n => !ignorar.test(n));
       if (nuevos.length) {
         fallos++;
         console.log(`  FALLA  ${nombre}`);
