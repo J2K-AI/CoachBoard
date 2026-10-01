@@ -80,19 +80,15 @@
       return;
     }
 
+    if (modo === "Medio") { medioCampo(g, W, m, vw, vh); return; }
+
     g.fillStyle = TURF;
     g.fillRect(m, m, vw, vh);
     g.fillStyle = TURF2;
     var bw = vw / 10;
     for (var i = 0; i < 10; i += 2) g.fillRect(m + i * bw, m, bw, vh);
 
-    var px, py, pw, ph;
-    if (modo === "Medio") {
-      g.save(); g.beginPath(); g.rect(m, m, vw, vh); g.clip();
-      px = m - vw; py = m; pw = vw * 2; ph = vh;
-    } else {
-      px = m; py = m; pw = vw; ph = vh;
-    }
+    var px = m, py = m, pw = vw, ph = vh;
 
     var cx = px + pw / 2, cy = py + ph / 2;
     var G = pitchGeom(pw, ph);
@@ -127,7 +123,87 @@
     [[px, py, 0], [px + pw, py, Math.PI / 2], [px + pw, py + ph, Math.PI], [px, py + ph, Math.PI * 1.5]]
       .forEach(function (c) { g.beginPath(); g.arc(c[0], c[1], cr, c[2], c[2] + Math.PI / 2); g.stroke(); });
 
-    if (modo === "Medio") g.restore();
+  }
+
+  /* ------------------------------------------------------------
+     Media cancha
+
+     Con la portería a un lado habría que ensanchar el campo más del
+     doble para llenar un lienzo apaisado, y el área salía enorme y
+     cortada contra el borde. Media cancha mide 68 x 52,5 m: puesta
+     con la portería arriba cabe casi entera sin deformar nada.
+
+     Aquí la escala es la misma en los dos ejes, así que todo se
+     dibuja en metros y los círculos son círculos de verdad.
+     ------------------------------------------------------------ */
+  function medioCampo(g, W, m, vw, vh) {
+    /* Se reserva sitio alrededor en metros: 1 m a cada lado y, arriba,
+       los 1,5 m que la portería sobresale de la línea de fondo. Sin
+       esa holgura la portería y el medio campo salen cortados contra
+       el borde del lienzo. */
+    var u = Math.min(vw / 70, vh / 57);         // píxeles por metro
+    var ancho = 68 * u, largo = 52.5 * u;
+    var x0 = m + (vw - ancho) / 2, x1 = x0 + ancho;
+    var y0 = m + (vh - 57 * u) / 2 + 2.5 * u;         // línea de fondo
+    var y1 = y0 + largo;                               // medio campo
+    var cx = x0 + ancho / 2;
+
+    /* Césped en todo el visor: lo que rodea al campo es banda, no
+       hueco vacío. Las franjas van cruzadas porque el campo está
+       girado. */
+    g.fillStyle = TURF;
+    g.fillRect(m, m, vw, vh);
+    g.fillStyle = TURF2;
+    var bh = largo / 5;
+    for (var i = 0; i < 5; i += 2) g.fillRect(m, y0 + i * bh, vw, bh);
+
+    g.strokeStyle = CHALK; g.fillStyle = CHALK;
+    g.lineWidth = Math.max(1.5, W / 500);
+    var punto = Math.max(2, W / 300);
+
+    /* Perímetro visible: bandas, línea de fondo y medio campo. */
+    g.beginPath();
+    g.moveTo(x0, y1); g.lineTo(x0, y0); g.lineTo(x1, y0); g.lineTo(x1, y1);
+    g.stroke();
+    g.beginPath(); g.moveTo(x0, y1); g.lineTo(x1, y1); g.stroke();
+
+    /* Círculo central: solo asoma la mitad por encima de la línea. */
+    g.beginPath(); g.arc(cx, y1, 9.15 * u, Math.PI, 2 * Math.PI); g.stroke();
+    g.beginPath(); g.arc(cx, y1, punto, 0, 7); g.fill();
+
+    /* Áreas, punto de penalti y su media luna. */
+    g.strokeRect(cx - 20.16 * u, y0, 40.32 * u, 16.5 * u);
+    g.strokeRect(cx - 9.16 * u, y0, 18.32 * u, 5.5 * u);
+    var pen = y0 + 11 * u;
+    g.beginPath(); g.arc(cx, pen, punto, 0, 7); g.fill();
+    /* Arranca donde el círculo de 9,15 m cruza la línea del área. */
+    var medio = Math.acos(5.5 / 9.15);
+    g.beginPath();
+    g.arc(cx, pen, 9.15 * u, Math.PI / 2 - medio, Math.PI / 2 + medio);
+    g.stroke();
+
+    /* Portería, por fuera de la línea de fondo. */
+    var gd = Math.max(4, 1.5 * u);
+    g.strokeRect(cx - 3.66 * u, y0 - gd, 7.32 * u, gd);
+
+    /* Córners. */
+    var cr = Math.max(5, 1 * u);
+    g.beginPath(); g.arc(x0, y0, cr, 0, Math.PI / 2); g.stroke();
+    g.beginPath(); g.arc(x1, y0, cr, Math.PI / 2, Math.PI); g.stroke();
+  }
+
+  /* Balón. Lo usan la pizarra de entrenamientos y la táctica, así que
+     vive aquí y no duplicado en cada una. */
+  function ball(g, x, y, r, sel) {
+    if (sel) {
+      g.beginPath(); g.arc(x, y, r + Math.max(3, r * 0.45), 0, 7);
+      g.strokeStyle = SEL; g.lineWidth = 2.5; g.stroke();
+    }
+    g.beginPath(); g.arc(x, y, r, 0, 7);
+    g.fillStyle = "#fff"; g.fill();
+    g.strokeStyle = "#161A21"; g.lineWidth = Math.max(1.2, r * 0.16); g.stroke();
+    g.fillStyle = "#161A21";
+    g.beginPath(); g.arc(x, y, r * 0.36, 0, 7); g.fill();
   }
 
   /* ------------------------------------------------------------
@@ -211,11 +287,7 @@
         break;
 
       case "Balon":
-        g.beginPath(); g.arc(x, y, s * 0.5, 0, 7);
-        g.fillStyle = "#fff"; g.fill();
-        g.strokeStyle = "#161A21"; g.lineWidth = 1.2; g.stroke();
-        g.fillStyle = "#161A21";
-        g.beginPath(); g.arc(x, y, s * 0.18, 0, 7); g.fill();
+        ball(g, x, y, s * 0.5);
         break;
 
       case "Porteria":
@@ -411,7 +483,7 @@
   }
 
   window.CB.pitch = {
-    drawPitch: drawPitch, token: token, arrowHead: arrowHead,
+    drawPitch: drawPitch, token: token, ball: ball, arrowHead: arrowHead,
     drawItem: drawItem, drawScene: drawScene, drawSelection: drawSelection,
     itemRadius: itemRadius, handlePos: handlePos, baseSize: baseSize,
     pitchGeom: pitchGeom

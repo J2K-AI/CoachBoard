@@ -128,6 +128,69 @@ export default async function (browser, url, etiqueta = "aplicación") {
   // ---------------------------------------------------------------
   // Partido en directo
   // ---------------------------------------------------------------
+  await paso("convocatoria: no llega con toda la plantilla marcada", async () => {
+    /* Era la causa de que luego las listas de falta, tarjeta o
+       asistencia enseñaran al equipo entero. */
+    await pagina.evaluate(() => {
+      DB.jugadores[0].estado = "Lesionado";
+      DB.jugadores[1].estado = "Sancionado";
+      CB.store.save();
+      CB.shell.go("match"); CB.match.seleccionar("p1");
+    });
+    await pagina.waitForTimeout(250);
+    await pagina.evaluate(() => CB.match.convocar());
+    await pagina.waitForTimeout(250);
+    const r = await pagina.evaluate(() => ({
+      total: document.querySelectorAll('#sheetBody input[type="checkbox"]').length,
+      marcados: document.querySelectorAll('#sheetBody input[type="checkbox"]:checked').length,
+      recuento: document.getElementById("convN").textContent
+    }));
+    if (r.marcados !== r.total - 2) {
+      throw new Error("marcados " + r.marcados + " de " + r.total + " (deberían faltar los 2 no disponibles)");
+    }
+    if (!r.recuento.includes(String(r.marcados))) throw new Error("recuento: " + r.recuento);
+
+    await pagina.evaluate(() => CB.match.marcar("ninguno"));
+    await pagina.waitForTimeout(150);
+    if (await pagina.evaluate(() => document.querySelectorAll('#sheetBody input:checked').length) !== 0) {
+      throw new Error("'Ninguno' no desmarcó");
+    }
+    await pagina.evaluate(() => CB.match.marcar("todos"));
+    await pagina.waitForTimeout(150);
+    if (await pagina.evaluate(() => document.querySelectorAll('#sheetBody input:checked').length) !== r.total) {
+      throw new Error("'Todos' no marcó a todos");
+    }
+    await pagina.evaluate(() => {
+      CB.shell.closeSheet();
+      DB.jugadores[0].estado = "Disponible";
+      DB.jugadores[1].estado = "Disponible";
+      CB.store.save();
+    });
+  });
+
+  await paso("las acciones del partido solo ofrecen a los convocados", async () => {
+    await pagina.evaluate(() => {
+      const ids = DB.jugadores.slice(0, 14).map(j => j.id);
+      CB.match.seleccionar("p1");
+      DB.match = { ev: "p1", conv: ids, campo: ids.slice(0, 11), banq: ids.slice(11),
+        per: 0, seg: 0, run: false, started: true, gf: 0, gc: 0, log: [], goles: [],
+        titulares: ids.slice(0, 11), dur: CB.models.normDur(null), br: null,
+        t: {}, st: {}, ta: {}, tr: {}, gol: {}, asi: {}, fal: {} };
+      ids.forEach(i => { DB.match.t[i] = 0; DB.match.st[i] = "Banquillo"; });
+      CB.store.save(); CB.match.render();
+    });
+    await pagina.waitForTimeout(250);
+    const plantilla = await pagina.evaluate(() => DB.jugadores.length);
+    for (const [fn, max] of [["falta", 14], ["tarjeta", 14], ["asistencia", 14], ["gol", 11]]) {
+      await pagina.evaluate(f => (f === "tarjeta" ? CB.match.tarjeta("y") : CB.match[f]()), fn);
+      await pagina.waitForTimeout(250);
+      const n = await pagina.evaluate(() => document.querySelectorAll("#sheetBody .prow").length);
+      await pagina.evaluate(() => CB.shell.closeSheet());
+      await pagina.waitForTimeout(120);
+      if (n > max) throw new Error(fn + " ofrece " + n + " de " + plantilla + ", máximo " + max);
+    }
+  });
+
   await paso("partido: convocatoria y once inicial", async () => {
     await pagina.evaluate(() => { CB.shell.go("match"); CB.match.seleccionar("p1"); });
     await pagina.waitForTimeout(200);

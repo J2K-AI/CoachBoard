@@ -189,6 +189,46 @@ export default async function (browser, url, etiqueta = "pizarra") {
     if (!d.some(i => i.rot === 45)) throw new Error("se perdió la rotación al cargar");
   });
 
+  await paso("medio campo: a escala, con la portería arriba y nada cortado", async () => {
+    /* Antes se estiraba el campo a lo ancho más del doble para llenar
+       un lienzo apaisado, y el área salía enorme; encima la portería
+       y la línea de fondo quedaban cortadas contra el borde. */
+    const casos = await pagina.evaluate(() => {
+      const c = document.createElement("canvas");
+      const chalk = d => d[0] > 190 && d[1] > 200 && d[2] > 190;
+      return [[1065, 650], [380, 250], [700, 450], [900, 300]].map(([w, h]) => {
+        c.width = w; c.height = h;
+        const g = c.getContext("2d");
+        CB.pitch.drawPitch(g, w, h, "Medio");
+        const d = g.getImageData(0, 0, w, h).data;
+        /* Caja que ocupa la cal: si algo se sale del lienzo, tocará
+           la primera o la última fila o columna. */
+        let x0 = w, x1 = -1, y0 = h, y1 = -1;
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4;
+            if (!chalk([d[i], d[i + 1], d[i + 2]])) continue;
+            if (x < x0) x0 = x; if (x > x1) x1 = x;
+            if (y < y0) y0 = y; if (y > y1) y1 = y;
+          }
+        }
+        return { w, h, x0, x1, y0, y1, ancho: x1 - x0, alto: y1 - y0 };
+      });
+    });
+
+    casos.forEach(c => {
+      if (c.x0 < 1 || c.y0 < 1 || c.x1 > c.w - 2 || c.y1 > c.h - 2) {
+        throw new Error("se sale del lienzo en " + c.w + "x" + c.h + ": " + JSON.stringify(c));
+      }
+      /* Media cancha son 68 x 52,5 m más la portería: algo más ancha
+         que alta, en torno a 1,25. Antes salía por encima de 2. */
+      const prop = c.ancho / c.alto;
+      if (prop < 1.1 || prop > 1.45) {
+        throw new Error("proporción " + prop.toFixed(2) + " en " + c.w + "x" + c.h);
+      }
+    });
+  });
+
   await paso("la media luna acaba justo en la línea del área", async () => {
     /* El fallo: el arco se trazaba con un ángulo fijo de 53°, que solo
        vale si el lienzo tiene la proporción de un campo real. En
@@ -274,6 +314,57 @@ export default async function (browser, url, etiqueta = "pizarra") {
     if (Math.abs(x - 0.46) > 0.001) throw new Error("x=" + x);
   });
 
+  await paso("tácticas: el balón se arrastra y no lo mueve la formación", async () => {
+    const antes = await pagina.evaluate(() => {
+      const b = DB.tac.filter(f => f.eq === "BAL")[0];
+      return b ? { x: b.x, y: b.y } : null;
+    });
+    if (!antes) throw new Error("no hay balón en la pizarra");
+
+    const caja = await pagina.evaluate(() => {
+      const c = document.getElementById("cTac").getBoundingClientRect();
+      return { x: c.left, y: c.top, w: c.width, h: c.height };
+    });
+    /* Se coge el balón donde está y se suelta arriba a la izquierda. */
+    await pagina.mouse.move(caja.x + caja.w * antes.x, caja.y + caja.h * antes.y);
+    await pagina.mouse.down();
+    await pagina.mouse.move(caja.x + caja.w * 0.22, caja.y + caja.h * 0.3, { steps: 8 });
+    await pagina.mouse.up();
+    await pagina.waitForTimeout(200);
+
+    const movido = await pagina.evaluate(() => {
+      const b = DB.tac.filter(f => f.eq === "BAL")[0];
+      return { x: b.x, y: b.y };
+    });
+    if (Math.abs(movido.x - 0.22) > 0.03 || Math.abs(movido.y - 0.3) > 0.03) {
+      throw new Error("no se movió: " + JSON.stringify(movido));
+    }
+
+    /* Aplicar una formación recoloca a los once, no al balón. */
+    await pagina.evaluate(() => {
+      document.getElementById("tacForm1").value = "4-3-3";
+      CB.tactics.aplicar("A");
+    });
+    await pagina.waitForTimeout(200);
+    const tras = await pagina.evaluate(() => {
+      const b = DB.tac.filter(f => f.eq === "BAL")[0];
+      return { x: b.x, y: b.y, n: DB.tac.filter(f => f.eq === "BAL").length };
+    });
+    if (tras.n !== 1) throw new Error("balones: " + tras.n);
+    if (Math.abs(tras.x - movido.x) > 0.001 || Math.abs(tras.y - movido.y) > 0.001) {
+      throw new Error("la formación movió el balón: " + JSON.stringify(tras));
+    }
+  });
+
+  await paso("tácticas: ocultar al rival no esconde el balón", async () => {
+    await pagina.evaluate(() => CB.tactics.rival());
+    await pagina.waitForTimeout(150);
+    const v = await pagina.evaluate(() => DB.tac.filter(f => f.eq === "BAL")[0].vis);
+    await pagina.evaluate(() => CB.tactics.rival());
+    await pagina.waitForTimeout(150);
+    if (!v) throw new Error("el balón se escondió con el rival");
+  });
+
   await paso("tácticas: guardar y recargar la pizarra", async () => {
     await pagina.evaluate(() => CB.tactics.guardar());
     await pagina.fill("#tacNom", "Plan A");
@@ -282,7 +373,13 @@ export default async function (browser, url, etiqueta = "pizarra") {
     if (await pagina.evaluate(() => DB.tacticas.length) !== 1) throw new Error("no se guardó");
     await pagina.evaluate(() => CB.tactics.cargar(DB.tacticas[0].id));
     await pagina.waitForTimeout(160);
-    if (await pagina.evaluate(() => DB.tac.length) !== 22) throw new Error("no se recuperaron las 22 fichas");
+    /* 22 jugadores más el balón. */
+    const r = await pagina.evaluate(() => ({
+      jug: DB.tac.filter(f => f.eq === "A" || f.eq === "B").length,
+      bal: DB.tac.filter(f => f.eq === "BAL").length
+    }));
+    if (r.jug !== 22) throw new Error("no se recuperaron las 22 fichas: " + r.jug);
+    if (r.bal !== 1) throw new Error("balones en la pizarra: " + r.bal);
   });
 
   await contexto.close();

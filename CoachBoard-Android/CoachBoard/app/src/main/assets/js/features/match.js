@@ -495,12 +495,26 @@
   function convocar() {
     if (!evId) { U.toast("Programa antes un partido"); return; }
     if (!window.DB.jugadores.length) { U.toast("No hay plantilla"); return; }
-    var previos = (m() && m().ev === evId) ? m().conv : window.DB.jugadores.map(function (j) { return j.id; });
+    /* Por defecto se marca solo a los disponibles. Antes venía toda la
+       plantilla marcada, lesionados incluidos: bastaba con pulsar
+       Convocar sin mirar para que luego las listas de falta, tarjeta o
+       asistencia enseñaran al equipo entero. */
+    var previos = (m() && m().ev === evId)
+      ? m().conv
+      : window.DB.jugadores
+          .filter(function (j) { return j.estado === "Disponible"; })
+          .map(function (j) { return j.id; });
     var arr = window.DB.jugadores.slice().sort(function (a, b) { return (a.dorsal || 99) - (b.dorsal || 99); });
 
-    var body = arr.map(function (j) {
+    var body = '<div class="chiprow mb2">' +
+      '<button class="chip" onclick="CB.match.marcar(\'todos\')">Todos</button>' +
+      '<button class="chip" onclick="CB.match.marcar(\'ninguno\')">Ninguno</button>' +
+      '<button class="chip" onclick="CB.match.marcar(\'disponibles\')">Solo disponibles</button>' +
+      '<span class="chip fin" id="convN"></span></div>';
+
+    body += arr.map(function (j) {
       return '<label class="pick"><input type="checkbox" value="' + j.id + '" ' +
-        (previos.indexOf(j.id) >= 0 ? "checked" : "") + '>' +
+        (previos.indexOf(j.id) >= 0 ? "checked" : "") + ' onchange="CB.match.contar()">' +
         '<span class="num-badge sm">' + (j.dorsal || "–") + '</span>' +
         '<span class="pmain"><span class="nm">' + U.esc(j.nombre) + '</span>' +
         '<span class="sub">' + U.esc(j.pos) + (j.estado !== "Disponible" ? " · " + U.esc(j.estado) : "") + '</span></span></label>';
@@ -518,6 +532,24 @@
         }
       }
     ]);
+    contarConvocados();
+  }
+
+  function casillas() {
+    return [].slice.call(document.querySelectorAll('#sheetBody input[type="checkbox"]'));
+  }
+  function marcarConvocatoria(que) {
+    casillas().forEach(function (c) {
+      var j = S.jug(c.value) || {};
+      c.checked = que === "todos" ? true
+        : que === "ninguno" ? false
+          : j.estado === "Disponible";
+    });
+    contarConvocados();
+  }
+  function contarConvocados() {
+    var n = casillas().filter(function (c) { return c.checked; }).length;
+    U.txt("convN", n + (n === 1 ? " convocado" : " convocados"));
   }
 
   function nuevoPartido(id, ids) {
@@ -1036,6 +1068,7 @@
     reloj: alternarReloj, periodo: siguientePeriodo,
     empezarParte: empezarParte, duracion: cambiarDuracion,
     convocar: convocar, alineacion: alineacion,
+    marcar: marcarConvocatoria, contar: contarConvocados,
     gol: gol, golRival: golRival, asistencia: asistencia, cambio: cambio,
     tarjeta: tarjeta, falta: falta, nota: nota, corregir: corregir,
     penaltis: penaltis, penTiro: penTiro, penDeshacer: penDeshacer,

@@ -346,6 +346,10 @@ select{ appearance:none; -webkit-appearance:none;
   padding:10px 4px; border-bottom:1px solid var(--line-soft);
 }
 .pick:last-of-type{ border-bottom:0; }
+/* El nombre y la posición van en <span>, que es en línea: sin esto
+   salían pegados ("Álvaro RuizPOR"). */
+.pick .pmain{ min-width:0; }
+.pick .nm, .pick .sub{ display:block; }
 .pick input[type=checkbox]{
   width:22px; height:22px; min-height:0; flex:none; padding:0;
   accent-color:var(--accent);

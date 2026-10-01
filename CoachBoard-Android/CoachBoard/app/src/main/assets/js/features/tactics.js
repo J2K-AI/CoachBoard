@@ -30,6 +30,8 @@
 
     if (window.DB.tac && window.DB.tac.length) {
       fichas = window.DB.tac;
+      asegurarBalon();          // las pizarras de antes no lo traían
+      guardarEstado();
     } else {
       reiniciar();
       guardarEstado();          // deja el estado inicial ya persistido
@@ -54,6 +56,16 @@
     M.FORMS["4-3-3"].forEach(function (c, i) {
       fichas.push({ id: U.uid(), eq: "B", x: 1 - c[0], y: c[1], d: String(i + 1), n: "", vis: true });
     });
+    asegurarBalon();
+  }
+
+  /* El balón es una ficha más, pero de un equipo que no existe: así
+     las formaciones, los nombres del once y el botón de ocultar al
+     rival (que filtran por "A" y "B") no lo tocan nunca. */
+  function esBalon(f) { return f.eq === "BAL"; }
+  function asegurarBalon() {
+    if (fichas.some(esBalon)) return;
+    fichas.push({ id: U.uid(), eq: "BAL", x: 0.5, y: 0.5, d: "", n: "", vis: true });
   }
 
   function construirSelectores() {
@@ -87,12 +99,18 @@
     var w = W(), h = H(), r = radio();
     g.setTransform(dpr(), 0, 0, dpr(), 0, 0);
     P.drawPitch(g, w, h, "Completo");
+    /* El balón se pinta el último para que quede por encima de las
+       fichas: si queda debajo parece que ha desaparecido. */
     fichas.forEach(function (f) {
-      if (!f.vis) return;
+      if (!f.vis || esBalon(f)) return;
       var col = f.eq === "A"
         ? (f.d === "1" ? M.COLS.Amarillo : M.COLS.Azul)
         : (f.d === "1" ? M.COLS.Amarillo : M.COLS.Rojo);
       P.token(g, f.x * w, f.y * h, r, col, f.d, f.n || "", sel === f.id);
+    });
+    fichas.forEach(function (f) {
+      if (!f.vis || !esBalon(f)) return;
+      P.ball(g, f.x * w, f.y * h, r * 0.62, sel === f.id);
     });
   }
 
@@ -105,12 +123,20 @@
     canvas.setPointerCapture(e.pointerId);
     var p = pos(e), r = radio();
     var hit = null;
-    for (var i = fichas.length - 1; i >= 0; i--) {
+    /* El balón se busca primero: se pinta encima, así que también
+       tiene que cogerse antes aunque esté sobre una ficha. */
+    for (var b = fichas.length - 1; b >= 0 && !hit; b--) {
+      var fb = fichas[b];
+      if (esBalon(fb) && fb.vis &&
+          Math.hypot(p.x - fb.x * p.W, p.y - fb.y * p.H) < r * 1.3) hit = fb;
+    }
+    for (var i = fichas.length - 1; i >= 0 && !hit; i--) {
       var f = fichas[i];
-      if (f.vis && Math.hypot(p.x - f.x * p.W, p.y - f.y * p.H) < r * 1.6) { hit = f; break; }
+      if (f.vis && !esBalon(f) &&
+          Math.hypot(p.x - f.x * p.W, p.y - f.y * p.H) < r * 1.6) hit = f;
     }
     var ahora = Date.now();
-    if (hit && ahora - ultimoToque < 330 && sel === hit.id) {
+    if (hit && !esBalon(hit) && ahora - ultimoToque < 330 && sel === hit.id) {
       ultimoToque = 0;
       editarFicha(hit);
       return;
@@ -233,6 +259,7 @@
     var t = window.DB.tacticas.filter(function (x) { return x.id === id; })[0];
     if (!t) return;
     fichas = JSON.parse(JSON.stringify(t.fichas));
+    asegurarBalon();            // pizarras guardadas antes del balón
     sel = null;
     verRival = fichas.some(function (f) { return f.eq === "B" && f.vis; });
     if (t.form1) U.$("tacForm1").value = t.form1;

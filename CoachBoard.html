@@ -606,6 +606,10 @@ select{ appearance:none; -webkit-appearance:none;
   padding:10px 4px; border-bottom:1px solid var(--line-soft);
 }
 .pick:last-of-type{ border-bottom:0; }
+/* El nombre y la posición van en <span>, que es en línea: sin esto
+   salían pegados ("Álvaro RuizPOR"). */
+.pick .pmain{ min-width:0; }
+.pick .nm, .pick .sub{ display:block; }
 .pick input[type=checkbox]{
   width:22px; height:22px; min-height:0; flex:none; padding:0;
   accent-color:var(--accent);
@@ -1881,19 +1885,15 @@ select{ appearance:none; -webkit-appearance:none;
       return;
     }
 
+    if (modo === "Medio") { medioCampo(g, W, m, vw, vh); return; }
+
     g.fillStyle = TURF;
     g.fillRect(m, m, vw, vh);
     g.fillStyle = TURF2;
     var bw = vw / 10;
     for (var i = 0; i < 10; i += 2) g.fillRect(m + i * bw, m, bw, vh);
 
-    var px, py, pw, ph;
-    if (modo === "Medio") {
-      g.save(); g.beginPath(); g.rect(m, m, vw, vh); g.clip();
-      px = m - vw; py = m; pw = vw * 2; ph = vh;
-    } else {
-      px = m; py = m; pw = vw; ph = vh;
-    }
+    var px = m, py = m, pw = vw, ph = vh;
 
     var cx = px + pw / 2, cy = py + ph / 2;
     var G = pitchGeom(pw, ph);
@@ -1928,7 +1928,87 @@ select{ appearance:none; -webkit-appearance:none;
     [[px, py, 0], [px + pw, py, Math.PI / 2], [px + pw, py + ph, Math.PI], [px, py + ph, Math.PI * 1.5]]
       .forEach(function (c) { g.beginPath(); g.arc(c[0], c[1], cr, c[2], c[2] + Math.PI / 2); g.stroke(); });
 
-    if (modo === "Medio") g.restore();
+  }
+
+  /* ------------------------------------------------------------
+     Media cancha
+
+     Con la portería a un lado habría que ensanchar el campo más del
+     doble para llenar un lienzo apaisado, y el área salía enorme y
+     cortada contra el borde. Media cancha mide 68 x 52,5 m: puesta
+     con la portería arriba cabe casi entera sin deformar nada.
+
+     Aquí la escala es la misma en los dos ejes, así que todo se
+     dibuja en metros y los círculos son círculos de verdad.
+     ------------------------------------------------------------ */
+  function medioCampo(g, W, m, vw, vh) {
+    /* Se reserva sitio alrededor en metros: 1 m a cada lado y, arriba,
+       los 1,5 m que la portería sobresale de la línea de fondo. Sin
+       esa holgura la portería y el medio campo salen cortados contra
+       el borde del lienzo. */
+    var u = Math.min(vw / 70, vh / 57);         // píxeles por metro
+    var ancho = 68 * u, largo = 52.5 * u;
+    var x0 = m + (vw - ancho) / 2, x1 = x0 + ancho;
+    var y0 = m + (vh - 57 * u) / 2 + 2.5 * u;         // línea de fondo
+    var y1 = y0 + largo;                               // medio campo
+    var cx = x0 + ancho / 2;
+
+    /* Césped en todo el visor: lo que rodea al campo es banda, no
+       hueco vacío. Las franjas van cruzadas porque el campo está
+       girado. */
+    g.fillStyle = TURF;
+    g.fillRect(m, m, vw, vh);
+    g.fillStyle = TURF2;
+    var bh = largo / 5;
+    for (var i = 0; i < 5; i += 2) g.fillRect(m, y0 + i * bh, vw, bh);
+
+    g.strokeStyle = CHALK; g.fillStyle = CHALK;
+    g.lineWidth = Math.max(1.5, W / 500);
+    var punto = Math.max(2, W / 300);
+
+    /* Perímetro visible: bandas, línea de fondo y medio campo. */
+    g.beginPath();
+    g.moveTo(x0, y1); g.lineTo(x0, y0); g.lineTo(x1, y0); g.lineTo(x1, y1);
+    g.stroke();
+    g.beginPath(); g.moveTo(x0, y1); g.lineTo(x1, y1); g.stroke();
+
+    /* Círculo central: solo asoma la mitad por encima de la línea. */
+    g.beginPath(); g.arc(cx, y1, 9.15 * u, Math.PI, 2 * Math.PI); g.stroke();
+    g.beginPath(); g.arc(cx, y1, punto, 0, 7); g.fill();
+
+    /* Áreas, punto de penalti y su media luna. */
+    g.strokeRect(cx - 20.16 * u, y0, 40.32 * u, 16.5 * u);
+    g.strokeRect(cx - 9.16 * u, y0, 18.32 * u, 5.5 * u);
+    var pen = y0 + 11 * u;
+    g.beginPath(); g.arc(cx, pen, punto, 0, 7); g.fill();
+    /* Arranca donde el círculo de 9,15 m cruza la línea del área. */
+    var medio = Math.acos(5.5 / 9.15);
+    g.beginPath();
+    g.arc(cx, pen, 9.15 * u, Math.PI / 2 - medio, Math.PI / 2 + medio);
+    g.stroke();
+
+    /* Portería, por fuera de la línea de fondo. */
+    var gd = Math.max(4, 1.5 * u);
+    g.strokeRect(cx - 3.66 * u, y0 - gd, 7.32 * u, gd);
+
+    /* Córners. */
+    var cr = Math.max(5, 1 * u);
+    g.beginPath(); g.arc(x0, y0, cr, 0, Math.PI / 2); g.stroke();
+    g.beginPath(); g.arc(x1, y0, cr, Math.PI / 2, Math.PI); g.stroke();
+  }
+
+  /* Balón. Lo usan la pizarra de entrenamientos y la táctica, así que
+     vive aquí y no duplicado en cada una. */
+  function ball(g, x, y, r, sel) {
+    if (sel) {
+      g.beginPath(); g.arc(x, y, r + Math.max(3, r * 0.45), 0, 7);
+      g.strokeStyle = SEL; g.lineWidth = 2.5; g.stroke();
+    }
+    g.beginPath(); g.arc(x, y, r, 0, 7);
+    g.fillStyle = "#fff"; g.fill();
+    g.strokeStyle = "#161A21"; g.lineWidth = Math.max(1.2, r * 0.16); g.stroke();
+    g.fillStyle = "#161A21";
+    g.beginPath(); g.arc(x, y, r * 0.36, 0, 7); g.fill();
   }
 
   /* ------------------------------------------------------------
@@ -2012,11 +2092,7 @@ select{ appearance:none; -webkit-appearance:none;
         break;
 
       case "Balon":
-        g.beginPath(); g.arc(x, y, s * 0.5, 0, 7);
-        g.fillStyle = "#fff"; g.fill();
-        g.strokeStyle = "#161A21"; g.lineWidth = 1.2; g.stroke();
-        g.fillStyle = "#161A21";
-        g.beginPath(); g.arc(x, y, s * 0.18, 0, 7); g.fill();
+        ball(g, x, y, s * 0.5);
         break;
 
       case "Porteria":
@@ -2212,7 +2288,7 @@ select{ appearance:none; -webkit-appearance:none;
   }
 
   window.CB.pitch = {
-    drawPitch: drawPitch, token: token, arrowHead: arrowHead,
+    drawPitch: drawPitch, token: token, ball: ball, arrowHead: arrowHead,
     drawItem: drawItem, drawScene: drawScene, drawSelection: drawSelection,
     itemRadius: itemRadius, handlePos: handlePos, baseSize: baseSize,
     pitchGeom: pitchGeom
@@ -4544,12 +4620,26 @@ select{ appearance:none; -webkit-appearance:none;
   function convocar() {
     if (!evId) { U.toast("Programa antes un partido"); return; }
     if (!window.DB.jugadores.length) { U.toast("No hay plantilla"); return; }
-    var previos = (m() && m().ev === evId) ? m().conv : window.DB.jugadores.map(function (j) { return j.id; });
+    /* Por defecto se marca solo a los disponibles. Antes venía toda la
+       plantilla marcada, lesionados incluidos: bastaba con pulsar
+       Convocar sin mirar para que luego las listas de falta, tarjeta o
+       asistencia enseñaran al equipo entero. */
+    var previos = (m() && m().ev === evId)
+      ? m().conv
+      : window.DB.jugadores
+          .filter(function (j) { return j.estado === "Disponible"; })
+          .map(function (j) { return j.id; });
     var arr = window.DB.jugadores.slice().sort(function (a, b) { return (a.dorsal || 99) - (b.dorsal || 99); });
 
-    var body = arr.map(function (j) {
+    var body = '<div class="chiprow mb2">' +
+      '<button class="chip" onclick="CB.match.marcar(\'todos\')">Todos</button>' +
+      '<button class="chip" onclick="CB.match.marcar(\'ninguno\')">Ninguno</button>' +
+      '<button class="chip" onclick="CB.match.marcar(\'disponibles\')">Solo disponibles</button>' +
+      '<span class="chip fin" id="convN"></span></div>';
+
+    body += arr.map(function (j) {
       return '<label class="pick"><input type="checkbox" value="' + j.id + '" ' +
-        (previos.indexOf(j.id) >= 0 ? "checked" : "") + '>' +
+        (previos.indexOf(j.id) >= 0 ? "checked" : "") + ' onchange="CB.match.contar()">' +
         '<span class="num-badge sm">' + (j.dorsal || "–") + '</span>' +
         '<span class="pmain"><span class="nm">' + U.esc(j.nombre) + '</span>' +
         '<span class="sub">' + U.esc(j.pos) + (j.estado !== "Disponible" ? " · " + U.esc(j.estado) : "") + '</span></span></label>';
@@ -4567,6 +4657,24 @@ select{ appearance:none; -webkit-appearance:none;
         }
       }
     ]);
+    contarConvocados();
+  }
+
+  function casillas() {
+    return [].slice.call(document.querySelectorAll('#sheetBody input[type="checkbox"]'));
+  }
+  function marcarConvocatoria(que) {
+    casillas().forEach(function (c) {
+      var j = S.jug(c.value) || {};
+      c.checked = que === "todos" ? true
+        : que === "ninguno" ? false
+          : j.estado === "Disponible";
+    });
+    contarConvocados();
+  }
+  function contarConvocados() {
+    var n = casillas().filter(function (c) { return c.checked; }).length;
+    U.txt("convN", n + (n === 1 ? " convocado" : " convocados"));
   }
 
   function nuevoPartido(id, ids) {
@@ -5085,6 +5193,7 @@ select{ appearance:none; -webkit-appearance:none;
     reloj: alternarReloj, periodo: siguientePeriodo,
     empezarParte: empezarParte, duracion: cambiarDuracion,
     convocar: convocar, alineacion: alineacion,
+    marcar: marcarConvocatoria, contar: contarConvocados,
     gol: gol, golRival: golRival, asistencia: asistencia, cambio: cambio,
     tarjeta: tarjeta, falta: falta, nota: nota, corregir: corregir,
     penaltis: penaltis, penTiro: penTiro, penDeshacer: penDeshacer,
@@ -5409,6 +5518,8 @@ select{ appearance:none; -webkit-appearance:none;
 
     if (window.DB.tac && window.DB.tac.length) {
       fichas = window.DB.tac;
+      asegurarBalon();          // las pizarras de antes no lo traían
+      guardarEstado();
     } else {
       reiniciar();
       guardarEstado();          // deja el estado inicial ya persistido
@@ -5433,6 +5544,16 @@ select{ appearance:none; -webkit-appearance:none;
     M.FORMS["4-3-3"].forEach(function (c, i) {
       fichas.push({ id: U.uid(), eq: "B", x: 1 - c[0], y: c[1], d: String(i + 1), n: "", vis: true });
     });
+    asegurarBalon();
+  }
+
+  /* El balón es una ficha más, pero de un equipo que no existe: así
+     las formaciones, los nombres del once y el botón de ocultar al
+     rival (que filtran por "A" y "B") no lo tocan nunca. */
+  function esBalon(f) { return f.eq === "BAL"; }
+  function asegurarBalon() {
+    if (fichas.some(esBalon)) return;
+    fichas.push({ id: U.uid(), eq: "BAL", x: 0.5, y: 0.5, d: "", n: "", vis: true });
   }
 
   function construirSelectores() {
@@ -5466,12 +5587,18 @@ select{ appearance:none; -webkit-appearance:none;
     var w = W(), h = H(), r = radio();
     g.setTransform(dpr(), 0, 0, dpr(), 0, 0);
     P.drawPitch(g, w, h, "Completo");
+    /* El balón se pinta el último para que quede por encima de las
+       fichas: si queda debajo parece que ha desaparecido. */
     fichas.forEach(function (f) {
-      if (!f.vis) return;
+      if (!f.vis || esBalon(f)) return;
       var col = f.eq === "A"
         ? (f.d === "1" ? M.COLS.Amarillo : M.COLS.Azul)
         : (f.d === "1" ? M.COLS.Amarillo : M.COLS.Rojo);
       P.token(g, f.x * w, f.y * h, r, col, f.d, f.n || "", sel === f.id);
+    });
+    fichas.forEach(function (f) {
+      if (!f.vis || !esBalon(f)) return;
+      P.ball(g, f.x * w, f.y * h, r * 0.62, sel === f.id);
     });
   }
 
@@ -5484,12 +5611,20 @@ select{ appearance:none; -webkit-appearance:none;
     canvas.setPointerCapture(e.pointerId);
     var p = pos(e), r = radio();
     var hit = null;
-    for (var i = fichas.length - 1; i >= 0; i--) {
+    /* El balón se busca primero: se pinta encima, así que también
+       tiene que cogerse antes aunque esté sobre una ficha. */
+    for (var b = fichas.length - 1; b >= 0 && !hit; b--) {
+      var fb = fichas[b];
+      if (esBalon(fb) && fb.vis &&
+          Math.hypot(p.x - fb.x * p.W, p.y - fb.y * p.H) < r * 1.3) hit = fb;
+    }
+    for (var i = fichas.length - 1; i >= 0 && !hit; i--) {
       var f = fichas[i];
-      if (f.vis && Math.hypot(p.x - f.x * p.W, p.y - f.y * p.H) < r * 1.6) { hit = f; break; }
+      if (f.vis && !esBalon(f) &&
+          Math.hypot(p.x - f.x * p.W, p.y - f.y * p.H) < r * 1.6) hit = f;
     }
     var ahora = Date.now();
-    if (hit && ahora - ultimoToque < 330 && sel === hit.id) {
+    if (hit && !esBalon(hit) && ahora - ultimoToque < 330 && sel === hit.id) {
       ultimoToque = 0;
       editarFicha(hit);
       return;
@@ -5612,6 +5747,7 @@ select{ appearance:none; -webkit-appearance:none;
     var t = window.DB.tacticas.filter(function (x) { return x.id === id; })[0];
     if (!t) return;
     fichas = JSON.parse(JSON.stringify(t.fichas));
+    asegurarBalon();            // pizarras guardadas antes del balón
     sel = null;
     verRival = fichas.some(function (f) { return f.eq === "B" && f.vis; });
     if (t.form1) U.$("tacForm1").value = t.form1;
