@@ -40,6 +40,30 @@ object BridgeScript {
             catch (e) { console.log('mapa', e); }
           };
 
+          window.compartirArchivoConTexto = function (name, blob, texto) {
+            var r = new FileReader();
+            r.onloadend = function () {
+              AndroidApp.shareWithText(name, blob.type || 'application/octet-stream',
+                                       String(r.result).split(',')[1] || '', texto || '');
+            };
+            r.readAsDataURL(blob);
+          };
+
+          /* Recordatorios: la pagina calcula cuando y que decir. */
+          window.avisosNativos = {
+            programar: function (lista) {
+              try { AndroidApp.scheduleReminders(JSON.stringify(lista)); }
+              catch (e) { console.log('avisos', e); }
+            },
+            permitidos: function () {
+              try { return AndroidApp.notificationsAllowed(); }
+              catch (e) { return false; }
+            },
+            pedirPermiso: function () {
+              try { AndroidApp.askNotifications(); } catch (e) { console.log('permiso', e); }
+            }
+          };
+
           window.compartirArchivo = function (name, blob) {
             var r = new FileReader();
             r.onloadend = function () {

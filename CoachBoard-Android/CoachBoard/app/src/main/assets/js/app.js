@@ -28,6 +28,10 @@
     window.CB.shell.init();
     U.txt("topSub", S.club());
 
+    /* Al abrir se reponen los avisos: el calendario puede haber
+       cambiado desde la última vez. */
+    try { window.CB.avisos.programar(); } catch (e) { /* sin contenedor */ }
+
     /* Cada pantalla se refresca al entrar: así nunca se ve
        información vieja aunque se haya editado en otro sitio. */
     window.CB.shell.onEnter("home", function () { window.CB.dashboard.render(); });

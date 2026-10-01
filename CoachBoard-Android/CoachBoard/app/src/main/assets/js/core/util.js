@@ -102,6 +102,8 @@
     note: '<rect x="4.5" y="3.5" width="15" height="17" rx="2"/><path d="M8 8.5h8M8 12.5h8M8 16.5h5"/>',
     pin: '<path d="M12 21s6.5-6.1 6.5-11a6.5 6.5 0 1 0-13 0c0 4.9 6.5 11 6.5 11z"/><circle cx="12" cy="10" r="2.4"/>',
     search: '<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 4.5 4.5"/>',
+    share: '<path d="M12 15.5V4m0 0L8.2 7.8M12 4l3.8 3.8"/><path d="M5 13.5v5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-5"/>',
+    bell: '<path d="M18 15.5V11a6 6 0 1 0-12 0v4.5L4.5 18h15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>',
 
     /* piezas de la pizarra */
     t_player: '<circle cx="12" cy="12" r="6.5"/><path d="M12 9v6M9 12h6"/>',

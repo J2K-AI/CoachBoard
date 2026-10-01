@@ -14,6 +14,11 @@
       '<p class="hint">Aparece en la cabecera, en el marcador y en los documentos PDF.</p>' +
       '<button class="btn pri wide mt1" onclick="CB.settings.guardarClub()">Guardar nombre</button>' +
 
+      '<div class="section"><span class="eyebrow">Recordatorios</span></div>' +
+      '<p class="hint">' + resumenAvisos() + '</p>' +
+      '<button class="btn wide" onclick="CB.settings.avisos()">' + U.svg("bell") +
+        'Avisos de partidos y entrenos</button>' +
+
       '<div class="section"><span class="eyebrow">Datos</span></div>' +
       '<p class="hint">Todo se guarda en este dispositivo. Descarga una copia de vez en cuando y guárdala donde quieras.</p>' +
       '<button class="btn wide" onclick="CB.store.backup()">' + U.svg("download") + 'Descargar copia de seguridad</button>' +
@@ -74,5 +79,20 @@
     ]);
   }
 
-  window.CB.settings = { open: open, guardarClub: guardarClub, ejemplo: ejemplo, guia: guia };
+  function resumenAvisos() {
+    var A = window.CB.avisos;
+    if (!A.soportado()) return "Los avisos solo suenan en la aplicación del móvil.";
+    var c = A.cfg();
+    if (!c.on) return "Desactivados.";
+    var n = A.lista().length;
+    return "Activados · " + (c.vispera ? "la víspera" : "sin aviso la víspera") +
+      (c.antes ? " y " + c.antes + " h antes" : "") +
+      " · " + n + (n === 1 ? " aviso en cola" : " avisos en cola");
+  }
+
+  function avisos() { window.CB.avisos.abrir(); }
+
+  window.CB.settings = {
+    open: open, guardarClub: guardarClub, ejemplo: ejemplo, guia: guia, avisos: avisos
+  };
 })();

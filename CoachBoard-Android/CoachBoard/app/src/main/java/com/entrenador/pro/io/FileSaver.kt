@@ -58,8 +58,13 @@ object FileSaver {
         FileOutputStream(File(dir, name)).use { it.write(bytes) }
     }
 
-    /** Abre el diálogo de compartir del sistema con el archivo generado. */
-    fun share(ctx: Context, name: String, mime: String, base64: String) {
+    /**
+     * Abre el diálogo de compartir del sistema con el archivo generado.
+     *
+     * `texto` viaja como pie del envío: WhatsApp lo pone de comentario
+     * de la imagen, y quien reciba la citación puede copiarlo.
+     */
+    fun share(ctx: Context, name: String, mime: String, base64: String, texto: String = "") {
         try {
             val dir = File(ctx.cacheDir, "compartir").apply { mkdirs() }
             val f = File(dir, name)
@@ -68,6 +73,7 @@ object FileSaver {
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = mime
                 putExtra(Intent.EXTRA_STREAM, uri)
+                if (texto.isNotBlank()) putExtra(Intent.EXTRA_TEXT, texto)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             ctx.startActivity(Intent.createChooser(intent, "Compartir"))

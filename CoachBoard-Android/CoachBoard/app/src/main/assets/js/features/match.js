@@ -395,6 +395,8 @@
       '<button class="btn sm ghost" onclick="CB.match.convocar()">Convocatoria</button>' +
       '<button class="btn sm ghost" onclick="CB.match.finalizar()">' + U.svg("flag") + 'Finalizar acta</button>' +
       '</div>';
+    h += '<button class="btn sm wide mt1" onclick="CB.citacion.abrir()">' +
+      U.svg("share") + 'Compartir citación</button>';
     if (hayActa) {
       h += '<button class="btn sm wide mt1" onclick="CB.match.actaPdf()">' + U.svg("pdf") + 'Acta en PDF</button>';
     }

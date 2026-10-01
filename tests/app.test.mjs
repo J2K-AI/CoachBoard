@@ -637,6 +637,135 @@ export default async function (browser, url, etiqueta = "aplicación") {
 
   await pagina.unroute("**/nominatim.openstreetmap.org/**");
 
+  // ---------------------------------------------------------------
+  // Citación y recordatorios
+  // ---------------------------------------------------------------
+  await paso("citación: la imagen lleva los tres grupos y los datos", async () => {
+    const r = await pagina.evaluate(() => {
+      DB.club = "CD Ejemplo";
+      DB.eventos.push({ id: "pc", tipo: "Partido", comp: "Liga", fecha: "2026-10-04",
+        hora: "18:00", rival: "CD Prueba", cond: "Local", lugar: "Campo de Jinámar",
+        notas: "", dur: CB.models.normDur(null), dir: "", lat: "", lon: "" });
+      const ids = DB.jugadores.slice(0, 15).map(j => j.id);
+      DB.match = { ev: "pc", conv: ids, campo: ids.slice(0, 11), banq: ids.slice(11),
+        per: 0, seg: 0, run: false, started: false, gf: 0, gc: 0, log: [], goles: [],
+        titulares: [], dur: CB.models.normDur(null), br: null,
+        t: {}, st: {}, ta: {}, tr: {}, gol: {}, asi: {}, fal: {} };
+      CB.store.save();
+      const l = CB.citacion.listas();
+      const cv = CB.citacion.dibujar();
+      return {
+        once: l.once.length, banq: l.banquillo.length, fuera: l.fuera.length,
+        ordenado: l.once.map(p => p.orden).every((v, i, a) => i === 0 || a[i - 1] <= v),
+        ancho: cv.width, alto: cv.height,
+        texto: CB.citacion.texto()
+      };
+    });
+    if (r.once !== 11 || r.banq !== 4) throw new Error(JSON.stringify(r));
+    if (r.fuera !== (await pagina.evaluate(() => DB.jugadores.length)) - 15) {
+      throw new Error("no convocados: " + r.fuera);
+    }
+    if (!r.ordenado) throw new Error("el once no sale ordenado por dorsal");
+    if (r.ancho !== 1080 || r.alto < 600) throw new Error("imagen " + r.ancho + "x" + r.alto);
+    for (const x of ["CD Prueba", "18:00", "Campo de Jinámar", "ONCE INICIAL", "BANQUILLO", "NO CONVOCADOS"]) {
+      if (!r.texto.includes(x)) throw new Error("falta en el texto: " + x);
+    }
+  });
+
+  await paso("citación: compartir usa el puente y manda imagen y texto", async () => {
+    const r = await pagina.evaluate(async () => {
+      let visto = null;
+      window.compartirArchivoConTexto = (n, blob, t) => { visto = { n, tipo: blob.type, bytes: blob.size, t }; };
+      CB.citacion.abrir();
+      await new Promise(r => setTimeout(r, 400));
+      CB.citacion.compartir();
+      delete window.compartirArchivoConTexto;
+      return visto;
+    });
+    if (!r) throw new Error("no llamó al puente");
+    if (r.tipo !== "image/png" || r.bytes < 2000) throw new Error(JSON.stringify(r));
+    if (!/^citacion-.*\.png$/.test(r.n)) throw new Error("nombre: " + r.n);
+    if (!r.t.includes("ONCE INICIAL")) throw new Error("sin texto de pie");
+    await pagina.evaluate(() => CB.shell.closeSheet());
+  });
+
+  await paso("avisos: se calculan víspera y mismo día, con lugar y rival", async () => {
+    const r = await pagina.evaluate(() => {
+      const d = new Date(Date.now() + 5 * 86400000);
+      const iso = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
+        "-" + String(d.getDate()).padStart(2, "0");
+      DB.eventos = [
+        { id: "a1", tipo: "Partido", fecha: iso, hora: "18:00", rival: "CD Prueba",
+          cond: "Visitante", lugar: "Campo de Jinámar", comp: "", notas: "",
+          dur: CB.models.normDur(null), dir: "", lat: "", lon: "" },
+        { id: "a2", tipo: "Entrenamiento", fecha: iso, hora: "19:30", rival: "",
+          cond: "Local", lugar: "Anexo", comp: "", notas: "", dir: "", lat: "", lon: "" }
+      ];
+      DB.avisos = { on: true, vispera: true, visperaHora: 20, antes: 2 };
+      CB.store.save();
+      return CB.avisos.lista();
+    });
+    if (r.length !== 4) throw new Error("avisos: " + r.length);
+
+    const partido = r.filter(a => /CD Prueba/.test(a.titulo));
+    if (partido.length !== 2) throw new Error("el partido no genera dos avisos");
+    const vis = partido.find(a => /mañana/.test(a.titulo));
+    if (!vis) throw new Error("falta el de la víspera");
+    for (const x of ["18:00", "Campo de Jinámar", "fuera", "CD Prueba"]) {
+      if (!vis.texto.includes(x)) throw new Error("el texto no dice " + x + ": " + vis.texto);
+    }
+    const entreno = r.find(a => /Entrenamiento/.test(a.titulo));
+    if (!entreno || !entreno.texto.includes("Anexo")) throw new Error("entreno: " + JSON.stringify(entreno));
+    /* Ordenados y todos en el futuro. */
+    if (r.some((a, i) => i && r[i - 1].cuando > a.cuando)) throw new Error("sin ordenar");
+    if (r.some(a => a.cuando <= Date.now())) throw new Error("hay avisos en el pasado");
+    /* Identificadores estables y distintos. */
+    if (new Set(r.map(a => a.id)).size !== 4) throw new Error("identificadores repetidos");
+  });
+
+  await paso("avisos: apagados no programan nada y el pasado se ignora", async () => {
+    const off = await pagina.evaluate(() => {
+      DB.avisos = { on: false, vispera: true, visperaHora: 20, antes: 2 };
+      return CB.avisos.lista().length;
+    });
+    if (off !== 0) throw new Error("apagados devuelven " + off);
+
+    const viejo = await pagina.evaluate(() => {
+      DB.avisos = { on: true, vispera: true, visperaHora: 20, antes: 2 };
+      DB.eventos = [{ id: "v1", tipo: "Partido", fecha: "2020-01-01", hora: "18:00",
+        rival: "Antiguo", cond: "Local", lugar: "X", comp: "", notas: "",
+        dur: CB.models.normDur(null), dir: "", lat: "", lon: "" }];
+      return CB.avisos.lista().length;
+    });
+    if (viejo !== 0) throw new Error("un partido de 2020 genera " + viejo + " avisos");
+  });
+
+  await paso("avisos: se reprograman al tocar el calendario", async () => {
+    const r = await pagina.evaluate(async () => {
+      const envios = [];
+      window.avisosNativos = {
+        programar: l => envios.push(l.length),
+        permitidos: () => true,
+        pedirPermiso: () => {}
+      };
+      const d = new Date(Date.now() + 9 * 86400000);
+      const iso = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
+        "-" + String(d.getDate()).padStart(2, "0");
+      DB.eventos = [];
+      CB.shell.go("agenda");
+      CB.agenda.editar(null, "Entrenamiento");
+      await new Promise(r => setTimeout(r, 250));
+      document.getElementById("eFec").value = iso;
+      document.getElementById("eHor").value = "19:00";
+      document.querySelectorAll("#sheetFoot .btn")[1].click();
+      await new Promise(r => setTimeout(r, 300));
+      delete window.avisosNativos;
+      return envios;
+    });
+    if (!r.length) throw new Error("no se reprogramó al guardar");
+    if (r[r.length - 1] !== 2) throw new Error("avisos enviados: " + JSON.stringify(r));
+  });
+
   await paso("navegación: todas las secciones responden", async () => {
     for (const v of ["home", "squad", "agenda", "att", "match", "board", "tac"]) {
       await pagina.evaluate(x => CB.shell.go(x), v);

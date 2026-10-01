@@ -418,3 +418,9 @@ select{ appearance:none; -webkit-appearance:none;
 @media (prefers-reduced-motion:reduce){
   .wop{ transition:none; }
 }
+
+/* Vista previa de una imagen generada (citación, pizarra). */
+.preview{
+  display:block; width:100%; height:auto; margin-top:var(--s2);
+  border-radius:var(--r-btn); border:1px solid var(--line);
+}

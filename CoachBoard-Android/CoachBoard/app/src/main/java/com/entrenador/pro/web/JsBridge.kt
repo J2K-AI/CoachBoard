@@ -1,11 +1,17 @@
 package com.entrenador.pro.web
 
+import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.webkit.JavascriptInterface
 import android.widget.Toast
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import com.entrenador.pro.avisos.Avisos
 import com.entrenador.pro.io.FileSaver
 import com.entrenador.pro.io.PagePrinter
 
@@ -18,7 +24,8 @@ import com.entrenador.pro.io.PagePrinter
  */
 class JsBridge(
     private val activity: Activity,
-    private val webProvider: () -> android.webkit.WebView
+    private val webProvider: () -> android.webkit.WebView,
+    private val pedirPermisoAvisos: () -> Unit = {}
 ) {
 
     @JavascriptInterface
@@ -36,6 +43,34 @@ class JsBridge(
     @JavascriptInterface
     fun share(name: String, mime: String, base64: String) {
         activity.runOnUiThread { FileSaver.share(activity, name, mime, base64) }
+    }
+
+    @JavascriptInterface
+    fun shareWithText(name: String, mime: String, base64: String, text: String) {
+        activity.runOnUiThread { FileSaver.share(activity, name, mime, base64, text) }
+    }
+
+    /* --- recordatorios ------------------------------------------ */
+
+    @JavascriptInterface
+    fun scheduleReminders(json: String) {
+        activity.runOnUiThread { Avisos.programar(activity, json) }
+    }
+
+    /** ¿Puede la aplicacion mostrar notificaciones ahora mismo? */
+    @JavascriptInterface
+    fun notificationsAllowed(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return NotificationManagerCompat.from(activity).areNotificationsEnabled()
+        }
+        return ContextCompat.checkSelfPermission(
+            activity, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    @JavascriptInterface
+    fun askNotifications() {
+        activity.runOnUiThread { pedirPermisoAvisos() }
     }
 
     /**

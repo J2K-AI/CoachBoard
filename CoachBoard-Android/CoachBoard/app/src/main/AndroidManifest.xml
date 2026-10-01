@@ -6,6 +6,11 @@
          avisa y deja escribir a mano cuando no hay conexion. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Recordatorios de partidos y entrenamientos. Las alarmas se
+         reponen al reiniciar el telefono. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
@@ -34,6 +39,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".avisos.AvisoReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".avisos.ArranqueReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

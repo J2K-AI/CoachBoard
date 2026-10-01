@@ -140,6 +140,7 @@
           window.DB.eventos = window.DB.eventos.filter(function (x) { return x.id !== id; });
           window.DB.asistencia = window.DB.asistencia.filter(function (a) { return a.ev !== id; });
           S.save();
+          window.CB.avisos.programar();
           window.CB.shell.closeSheet();
           window.CB.app.renderAll();
           U.toast("Sesión eliminada");
@@ -163,6 +164,7 @@
         if (id) window.DB.eventos = window.DB.eventos.map(function (x) { return x.id === id ? o : x; });
         else window.DB.eventos.push(o);
         S.save();
+        window.CB.avisos.programar();     // el calendario ha cambiado
         window.CB.shell.closeSheet();
         window.CB.app.renderAll();
         U.toast(id ? "Sesión actualizada" : "Sesión programada");

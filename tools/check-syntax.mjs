@@ -89,6 +89,7 @@ const GENERADOS = new Set([
   "mClock", "mPanel", "mSel", "drillUndo", "attSel",
   "cfgClub", "cfgImp", "pDor", "pPos", "pNom", "pPie", "pEst", "pNac", "pTel", "pNot",
   "eTipo", "eFec", "eHor", "eRiv", "eCon", "eCom", "eNot", "lqBusca", "convN",
+  "avOn", "avVis", "avHora", "avAntes", "avResumen",
   "dNom", "dCat", "dMin", "dJug", "dDesc", "drillTxt", "tacNom", "tfD", "tfN"
 ]);
 const enHtml = new Set([...html.matchAll(/id="([\w-]+)"/g)].map(m => m[1]));

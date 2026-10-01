@@ -23,7 +23,8 @@
       partidos: [],
       match: null,
       tac: null,
-      durDef: null        // última duración usada al programar un partido
+      durDef: null,       // última duración usada al programar un partido
+      avisos: null        // configuración de los recordatorios
     };
   }
 
@@ -74,6 +75,7 @@
        todos de 2 x 45: el valor por defecto ya los deja igual. */
     var Mo = window.CB.models;
     d.durDef = d.durDef ? Mo.normDur(d.durDef) : null;
+    if (d.avisos === undefined) d.avisos = null;
     d.eventos.forEach(function (e) {
       if (isMatch(e)) e.dur = Mo.normDur(e.dur);
       /* Antes el lugar era solo texto; ahora puede traer ubicación. */

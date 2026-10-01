@@ -1,6 +1,8 @@
 package com.entrenador.pro
 
+import android.Manifest
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import android.webkit.ValueCallback
@@ -37,6 +39,27 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * Permiso de notificaciones. Desde Android 13 hay que pedirlo; en
+     * versiones anteriores viene concedido y no hace falta lanzar nada.
+     * Al responder se avisa a la pagina para que refresque sus ajustes.
+     */
+    private val permisoAvisos = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { concedido ->
+        web.evaluateJavascript(
+            "try{ CB.avisos.respuestaPermiso(" + concedido + "); }catch(e){}", null
+        )
+    }
+
+    private fun pedirPermisoAvisos() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permisoAvisos.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            web.evaluateJavascript("try{ CB.avisos.respuestaPermiso(true); }catch(e){}", null)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -50,7 +73,7 @@ class MainActivity : AppCompatActivity() {
             filePicker.launch(params.createIntent())
             true
         }
-        val bridge = JsBridge(this) { web }
+        val bridge = JsBridge(this, { web }, { pedirPermisoAvisos() })
 
         web = WebAppHost.create(this, chrome, bridge)
         setContentView(web)

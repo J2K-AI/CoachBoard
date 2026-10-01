@@ -679,6 +679,12 @@ select{ appearance:none; -webkit-appearance:none;
   .wop{ transition:none; }
 }
 
+/* Vista previa de una imagen generada (citación, pizarra). */
+.preview{
+  display:block; width:100%; height:auto; margin-top:var(--s2);
+  border-radius:var(--r-btn); border:1px solid var(--line);
+}
+
 /* ===== css/screens.css ===== */
 /* =============================================================
    CoachBoard · pantallas
@@ -1280,6 +1286,8 @@ select{ appearance:none; -webkit-appearance:none;
     note: '<rect x="4.5" y="3.5" width="15" height="17" rx="2"/><path d="M8 8.5h8M8 12.5h8M8 16.5h5"/>',
     pin: '<path d="M12 21s6.5-6.1 6.5-11a6.5 6.5 0 1 0-13 0c0 4.9 6.5 11 6.5 11z"/><circle cx="12" cy="10" r="2.4"/>',
     search: '<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 4.5 4.5"/>',
+    share: '<path d="M12 15.5V4m0 0L8.2 7.8M12 4l3.8 3.8"/><path d="M5 13.5v5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-5"/>',
+    bell: '<path d="M18 15.5V11a6 6 0 1 0-12 0v4.5L4.5 18h15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>',
 
     /* piezas de la pizarra */
     t_player: '<circle cx="12" cy="12" r="6.5"/><path d="M12 9v6M9 12h6"/>',
@@ -1376,7 +1384,8 @@ select{ appearance:none; -webkit-appearance:none;
       partidos: [],
       match: null,
       tac: null,
-      durDef: null        // última duración usada al programar un partido
+      durDef: null,       // última duración usada al programar un partido
+      avisos: null        // configuración de los recordatorios
     };
   }
 
@@ -1427,6 +1436,7 @@ select{ appearance:none; -webkit-appearance:none;
        todos de 2 x 45: el valor por defecto ya los deja igual. */
     var Mo = window.CB.models;
     d.durDef = d.durDef ? Mo.normDur(d.durDef) : null;
+    if (d.avisos === undefined) d.avisos = null;
     d.eventos.forEach(function (e) {
       if (isMatch(e)) e.dur = Mo.normDur(e.dur);
       /* Antes el lugar era solo texto; ahora puede traer ubicación. */
@@ -3880,6 +3890,7 @@ select{ appearance:none; -webkit-appearance:none;
           window.DB.eventos = window.DB.eventos.filter(function (x) { return x.id !== id; });
           window.DB.asistencia = window.DB.asistencia.filter(function (a) { return a.ev !== id; });
           S.save();
+          window.CB.avisos.programar();
           window.CB.shell.closeSheet();
           window.CB.app.renderAll();
           U.toast("Sesión eliminada");
@@ -3903,6 +3914,7 @@ select{ appearance:none; -webkit-appearance:none;
         if (id) window.DB.eventos = window.DB.eventos.map(function (x) { return x.id === id ? o : x; });
         else window.DB.eventos.push(o);
         S.save();
+        window.CB.avisos.programar();     // el calendario ha cambiado
         window.CB.shell.closeSheet();
         window.CB.app.renderAll();
         U.toast(id ? "Sesión actualizada" : "Sesión programada");
@@ -4520,6 +4532,8 @@ select{ appearance:none; -webkit-appearance:none;
       '<button class="btn sm ghost" onclick="CB.match.convocar()">Convocatoria</button>' +
       '<button class="btn sm ghost" onclick="CB.match.finalizar()">' + U.svg("flag") + 'Finalizar acta</button>' +
       '</div>';
+    h += '<button class="btn sm wide mt1" onclick="CB.citacion.abrir()">' +
+      U.svg("share") + 'Compartir citación</button>';
     if (hayActa) {
       h += '<button class="btn sm wide mt1" onclick="CB.match.actaPdf()">' + U.svg("pdf") + 'Acta en PDF</button>';
     }
@@ -5827,6 +5841,489 @@ select{ appearance:none; -webkit-appearance:none;
 
 </script>
 <script>
+/* ===== js/features/avisos.js ===== */
+/* =============================================================
+   CoachBoard · features/avisos.js
+   Recordatorios de partidos y entrenamientos.
+
+   Aquí se decide cuándo hay que avisar y qué dice el aviso; el
+   contenedor Android solo programa las alarmas. Así la lógica es la
+   misma en el móvil y en el PC, donde simplemente no hay a quién
+   avisar y la pantalla lo dice.
+   ============================================================= */
+(function () {
+  "use strict";
+  var U = window.CB.util;
+  var S = window.CB.store;
+
+  var DEF = { on: false, vispera: true, visperaHora: 20, antes: 2 };
+
+  function cfg() {
+    var c = window.DB.avisos || {};
+    return {
+      on: !!c.on,
+      vispera: c.vispera !== false,
+      visperaHora: typeof c.visperaHora === "number" ? c.visperaHora : DEF.visperaHora,
+      antes: typeof c.antes === "number" ? c.antes : DEF.antes
+    };
+  }
+
+  function guardar(c) {
+    window.DB.avisos = c;
+    S.save();
+    programar();
+  }
+
+  function soportado() {
+    return !!(window.avisosNativos && typeof window.avisosNativos.programar === "function");
+  }
+
+  /* ---------------------------------------------------------
+     Qué dice cada aviso
+     --------------------------------------------------------- */
+  /* toISOString pasa a UTC y en el borde del día cambia la fecha. */
+  function fechaLocal(d) {
+    var m = d.getMonth() + 1, dia = d.getDate();
+    return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (dia < 10 ? "0" : "") + dia;
+  }
+
+  function cuando(e) {
+    var hora = (e.hora && /^\d{1,2}:\d{2}$/.test(e.hora)) ? e.hora : "00:00";
+    var d = new Date(e.fecha + "T" + (hora.length === 4 ? "0" + hora : hora) + ":00");
+    return isNaN(d) ? null : d;
+  }
+
+  function titulo(e, momento) {
+    var partido = S.isMatch(e);
+    var que = partido ? "Partido" : (e.tipo || "Entrenamiento");
+    if (momento === "vispera") return que + " mañana" + (partido && e.rival ? " · " + e.rival : "");
+    return que + " en " + cfg().antes + " h" + (partido && e.rival ? " · " + e.rival : "");
+  }
+
+  function cuerpo(e) {
+    var p = [];
+    if (e.hora) p.push(e.hora);
+    if (e.lugar) p.push(e.lugar + (e.cond === "Visitante" ? " (fuera)" : ""));
+    if (S.isMatch(e) && e.rival) p.push("contra " + e.rival);
+    return p.join(" · ") || "Sin detalles";
+  }
+
+  /* Identificador estable por evento y momento: así reprogramar no
+     duplica alarmas y cancelar encuentra las de antes. */
+  function idAviso(e, momento) {
+    var s = e.id + "|" + momento, h = 0;
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return Math.abs(h) % 2000000000;
+  }
+
+  /** Lista de avisos futuros, lista para el contenedor. */
+  function lista(ahora) {
+    var c = cfg();
+    if (!c.on) return [];
+    var t0 = (ahora || new Date()).getTime();
+    var out = [];
+
+    window.DB.eventos.forEach(function (e) {
+      var d = cuando(e);
+      if (!d) return;
+      var inicio = d.getTime();
+      if (inicio < t0) return;
+
+      if (c.vispera) {
+        var v = new Date(d.getTime());
+        v.setDate(v.getDate() - 1);
+        v.setHours(c.visperaHora, 0, 0, 0);
+        if (v.getTime() > t0) {
+          out.push({
+            id: idAviso(e, "vispera"), cuando: v.getTime(),
+            titulo: titulo(e, "vispera"), texto: cuerpo(e)
+          });
+        }
+      }
+
+      if (c.antes > 0) {
+        var a = inicio - c.antes * 3600000;
+        if (a > t0) {
+          out.push({
+            id: idAviso(e, "antes"), cuando: a,
+            titulo: titulo(e, "antes"), texto: cuerpo(e)
+          });
+        }
+      }
+    });
+
+    out.sort(function (x, y) { return x.cuando - y.cuando; });
+    return out;
+  }
+
+  function programar() {
+    if (!soportado()) return 0;
+    var l = lista();
+    window.avisosNativos.programar(l);
+    return l.length;
+  }
+
+  /* ---------------------------------------------------------
+     Ajustes
+     --------------------------------------------------------- */
+  function abrir() {
+    var c = cfg();
+    var horas = [];
+    for (var h = 16; h <= 23; h++) horas.push(h);
+
+    var cuerpoHtml =
+      (soportado()
+        ? ""
+        : '<div class="empty mb2"><b>Solo en el móvil</b>' +
+          'Los recordatorios los lanza la aplicación de Android. Aquí puedes ' +
+          'dejarlos configurados, pero no sonarán en el navegador.</div>') +
+      '<label class="pick"><input type="checkbox" id="avOn"' + (c.on ? " checked" : "") + '>' +
+        '<span class="pmain"><span class="nm">Avisarme de partidos y entrenos</span>' +
+        '<span class="sub">Con la hora, el campo y el rival</span></span></label>' +
+      '<label class="pick"><input type="checkbox" id="avVis"' + (c.vispera ? " checked" : "") + '>' +
+        '<span class="pmain"><span class="nm">La víspera</span>' +
+        '<span class="sub">El día antes, para preparar la bolsa</span></span></label>' +
+      '<label class="f">Hora del aviso de la víspera</label>' +
+      '<select id="avHora">' + horas.map(function (h) {
+        return '<option value="' + h + '"' + (h === c.visperaHora ? " selected" : "") + '>' +
+          (h < 10 ? "0" : "") + h + ':00</option>';
+      }).join("") + '</select>' +
+      '<label class="f">Aviso el mismo día</label>' +
+      '<select id="avAntes">' + [0, 1, 2, 3, 4].map(function (n) {
+        return '<option value="' + n + '"' + (n === c.antes ? " selected" : "") + '>' +
+          (n === 0 ? "No avisar" : n + " h antes") + '</option>';
+      }).join("") + '</select>' +
+      '<p class="hint mt2" id="avResumen"></p>';
+
+    window.CB.shell.openSheet("Recordatorios", cuerpoHtml, [
+      { text: "Cancelar", cls: "ghost", fn: window.CB.shell.closeSheet },
+      { text: "Guardar", cls: "pri", fn: aceptar }
+    ]);
+    resumen();
+    ["avOn", "avVis", "avHora", "avAntes"].forEach(function (id) {
+      var el = U.$(id);
+      if (el) el.onchange = resumen;
+    });
+  }
+
+  function leerForm() {
+    return {
+      on: !!(U.$("avOn") && U.$("avOn").checked),
+      vispera: !!(U.$("avVis") && U.$("avVis").checked),
+      visperaHora: parseInt(U.val("avHora"), 10) || DEF.visperaHora,
+      antes: parseInt(U.val("avAntes"), 10) || 0
+    };
+  }
+
+  /* Enseña cuántos avisos quedarían y cuál es el siguiente: es la
+     forma de que el entrenador compruebe que esto hace algo. */
+  function resumen() {
+    var previo = window.DB.avisos;
+    window.DB.avisos = leerForm();
+    var l = lista();
+    window.DB.avisos = previo;
+    var txt;
+    if (!l.length) txt = "Ahora mismo no hay nada que avisar.";
+    else {
+      var p = new Date(l[0].cuando);
+      var hh = String(p.getHours()), mm = String(p.getMinutes());
+      txt = l.length + (l.length === 1 ? " aviso programado" : " avisos programados") +
+        ". El primero, " + U.fmtDate(fechaLocal(p)) +
+        " a las " + (hh.length < 2 ? "0" : "") + hh + ":" + (mm.length < 2 ? "0" : "") + mm + ".";
+    }
+    U.txt("avResumen", txt);
+  }
+
+  function aceptar() {
+    var c = leerForm();
+    if (c.on && soportado() && window.avisosNativos.permitidos &&
+        !window.avisosNativos.permitidos()) {
+      pendiente = c;
+      window.avisosNativos.pedirPermiso();
+      return;
+    }
+    guardar(c);
+    window.CB.shell.closeSheet();
+    U.toast(c.on ? "Recordatorios activados" : "Recordatorios desactivados");
+  }
+
+  var pendiente = null;
+
+  /** La llama el contenedor cuando el usuario responde al permiso. */
+  function respuestaPermiso(ok) {
+    var c = pendiente || cfg();
+    pendiente = null;
+    if (!ok) {
+      c.on = false;
+      guardar(c);
+      window.CB.shell.closeSheet();
+      U.toast("Sin permiso de notificaciones no se puede avisar");
+      return;
+    }
+    guardar(c);
+    window.CB.shell.closeSheet();
+    U.toast("Recordatorios activados");
+  }
+
+  window.CB.avisos = {
+    abrir: abrir, lista: lista, programar: programar,
+    cfg: cfg, respuestaPermiso: respuestaPermiso, soportado: soportado
+  };
+})();
+
+</script>
+<script>
+/* ===== js/features/citacion.js ===== */
+/* =============================================================
+   CoachBoard · features/citacion.js
+   La convocatoria como una imagen para mandar al grupo del equipo.
+
+   Se hace imagen y no texto porque en WhatsApp una foto se ve en el
+   propio chat, sin abrir nada, y se reenvía tal cual. El texto va
+   igualmente como pie del envío, para quien prefiera copiarlo.
+   ============================================================= */
+(function () {
+  "use strict";
+  var U = window.CB.util;
+  var S = window.CB.store;
+  var M = window.CB.models;
+
+  var ANCHO = 1080;
+  var FUENTE = '-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif';
+  var ultima = null;          // { url, blob, texto, nombre }
+
+  function listas() {
+    var mt = window.DB.match;
+    if (!mt) return null;
+    var nombre = function (id) {
+      var j = S.jug(id);
+      return j ? { d: j.dorsal || "–", n: j.nombre, orden: j.dorsal || 99 } : null;
+    };
+    /* Por dorsal: es como se lee una alineación y como la espera
+       cualquiera que mire el mensaje. */
+    var porDorsal = function (a, b) { return a.orden - b.orden; };
+    var fuera = window.DB.jugadores
+      .filter(function (j) { return mt.conv.indexOf(j.id) < 0; })
+      .sort(function (a, b) { return (a.dorsal || 99) - (b.dorsal || 99); })
+      .map(function (j) {
+        return {
+          d: j.dorsal || "–", n: j.nombre, orden: j.dorsal || 99,
+          nota: j.estado !== "Disponible" ? j.estado : ""
+        };
+      });
+    return {
+      once: mt.campo.map(nombre).filter(Boolean).sort(porDorsal),
+      banquillo: mt.banq.map(nombre).filter(Boolean).sort(porDorsal),
+      fuera: fuera
+    };
+  }
+
+  function cabecera() {
+    var mt = window.DB.match;
+    var e = mt ? S.ev(mt.ev) : null;
+    var local = !e || e.cond !== "Visitante";
+    return {
+      club: S.club() || "Mi equipo",
+      rival: (e && e.rival) || "Rival",
+      local: local,
+      fecha: e ? U.fmtDateLong(e.fecha) : "",
+      hora: (e && e.hora) || "",
+      lugar: (e && e.lugar) || "",
+      dir: (e && e.dir) || "",
+      comp: (e && (e.comp || e.tipo)) || "",
+      dur: M.durTexto(mt && mt.dur)
+    };
+  }
+
+  /* ---------------------------------------------------------
+     Texto plano, que viaja como pie del envío
+     --------------------------------------------------------- */
+  function texto() {
+    var c = cabecera(), l = listas();
+    if (!l) return "";
+    var fila = function (p) { return p.d + " " + p.n; };
+    var t = c.club + " – " + c.rival + "\n";
+    if (c.fecha) t += c.fecha + (c.hora ? " · " + c.hora : "") + "\n";
+    if (c.lugar) t += c.lugar + (c.local ? "" : " (fuera)") + "\n";
+    t += "\nONCE INICIAL\n" + l.once.map(fila).join("\n");
+    if (l.banquillo.length) t += "\n\nBANQUILLO\n" + l.banquillo.map(fila).join("\n");
+    if (l.fuera.length) {
+      t += "\n\nNO CONVOCADOS\n" + l.fuera.map(function (p) {
+        return fila(p) + (p.nota ? " (" + p.nota.toLowerCase() + ")" : "");
+      }).join("\n");
+    }
+    return t;
+  }
+
+  /* ---------------------------------------------------------
+     Imagen
+     --------------------------------------------------------- */
+  function bloqueAlto(n) {
+    if (!n) return 0;
+    return 58 + Math.ceil(n / 2) * 46 + 24;      // título + filas a dos columnas
+  }
+
+  function dibujar() {
+    var c = cabecera(), l = listas();
+    if (!l) return null;
+
+    var alto = 300 + bloqueAlto(l.once.length) +
+      bloqueAlto(l.banquillo.length) + bloqueAlto(l.fuera.length) + 64;
+    var cv = document.createElement("canvas");
+    cv.width = ANCHO; cv.height = alto;
+    var g = cv.getContext("2d");
+
+    g.fillStyle = "#0F1115"; g.fillRect(0, 0, ANCHO, alto);
+    g.fillStyle = "#32D583"; g.fillRect(0, 0, ANCHO, 10);
+
+    var x = 64, y = 86;
+
+    g.fillStyle = "#9299A6";
+    g.font = "700 24px " + FUENTE;
+    g.fillText("CONVOCATORIA" + (c.comp ? "  ·  " + c.comp.toUpperCase() : ""), x, y);
+
+    y += 62;
+    g.fillStyle = "#F5F7FA";
+    g.font = "800 52px " + FUENTE;
+    var titulo = c.local ? c.club + "  vs  " + c.rival : c.rival + "  vs  " + c.club;
+    encajar(g, titulo, ANCHO - 2 * x, 52, 34);
+    g.fillText(titulo, x, y);
+
+    y += 50;
+    g.fillStyle = "#32D583";
+    g.font = "650 28px " + FUENTE;
+    var cuando = [c.fecha, c.hora].filter(Boolean).join("  ·  ");
+    if (cuando) { g.fillText(cuando, x, y); y += 40; }
+
+    if (c.lugar) {
+      g.fillStyle = "#9299A6";
+      g.font = "500 26px " + FUENTE;
+      g.fillText(c.lugar + (c.local ? "" : "  (fuera)"), x, y);
+      y += 38;
+    }
+
+    y += 18;
+    y = bloque(g, x, y, "ONCE INICIAL", l.once, "#32D583");
+    y = bloque(g, x, y, "BANQUILLO", l.banquillo, "#4C8DFF");
+    y = bloque(g, x, y, "NO CONVOCADOS", l.fuera, "#9299A6");
+
+    g.fillStyle = "#4A515E";
+    g.font = "500 22px " + FUENTE;
+    g.fillText(c.club + "  ·  " + c.dur, x, alto - 44);
+
+    return cv;
+  }
+
+  /* Reduce el tamaño de letra hasta que el texto quepa a lo ancho. */
+  function encajar(g, txt, max, desde, minimo) {
+    var t = desde;
+    while (t > minimo && g.measureText(txt).width > max) {
+      t -= 2;
+      g.font = "800 " + t + "px " + FUENTE;
+    }
+  }
+
+  function bloque(g, x, y, titulo, gente, color) {
+    if (!gente.length) return y;
+    g.fillStyle = color;
+    g.font = "700 24px " + FUENTE;
+    g.fillText(titulo + "   " + gente.length, x, y);
+    y += 46;
+
+    var colAncho = (ANCHO - 2 * x) / 2;
+    gente.forEach(function (p, i) {
+      var cx = x + (i % 2) * colAncho;
+      var cy = y + Math.floor(i / 2) * 46;
+      g.fillStyle = "#1E222B";
+      redondo(g, cx, cy - 26, 44, 34, 8);
+      g.fillStyle = "#F5F7FA";
+      g.font = "700 20px " + FUENTE;
+      g.textAlign = "center";
+      g.fillText(String(p.d), cx + 22, cy - 2);
+      g.textAlign = "left";
+      g.font = "500 24px " + FUENTE;
+      g.fillStyle = p.nota ? "#9299A6" : "#F5F7FA";
+      var nom = p.n + (p.nota ? " · " + p.nota.toLowerCase() : "");
+      g.fillText(recortar(g, nom, colAncho - 70), cx + 58, cy);
+    });
+    return y + Math.ceil(gente.length / 2) * 46 + 36;
+  }
+
+  function recortar(g, txt, max) {
+    if (g.measureText(txt).width <= max) return txt;
+    var t = txt;
+    while (t.length > 4 && g.measureText(t + "…").width > max) t = t.slice(0, -1);
+    return t + "…";
+  }
+
+  function redondo(g, x, y, w, h, r) {
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+    g.fill();
+  }
+
+  /* ---------------------------------------------------------
+     Hoja
+     --------------------------------------------------------- */
+  function abrir() {
+    var mt = window.DB.match;
+    if (!mt) { U.toast("Convoca primero"); return; }
+    if (!mt.campo.length) { U.toast("Coloca antes el once inicial"); return; }
+
+    var cv = dibujar();
+    if (!cv) return;
+    var c = cabecera();
+    var nombre = "citacion-" + (c.rival || "partido").replace(/[^\wÁÉÍÓÚÑáéíóúñ -]/g, "")
+      .trim().replace(/\s+/g, "-").toLowerCase() + ".png";
+
+    cv.toBlob(function (blob) {
+      ultima = { url: cv.toDataURL("image/png"), blob: blob, texto: texto(), nombre: nombre };
+      window.CB.shell.openSheet("Citación",
+        '<p class="hint">Así se verá en el grupo del equipo.</p>' +
+        '<img class="preview" src="' + ultima.url + '" alt="Convocatoria">',
+        [
+          { text: "Descargar", cls: "ghost", fn: descargar },
+          { text: "Compartir", cls: "pri", fn: compartir }
+        ]);
+    }, "image/png");
+  }
+
+  function descargar() {
+    if (!ultima) return;
+    window.download(ultima.nombre, ultima.blob);
+    U.toast("Imagen descargada");
+  }
+
+  function compartir() {
+    if (!ultima) return;
+    /* En el móvil se abre el selector del sistema con la imagen y el
+       texto; en el PC no hay tal cosa, así que se descarga. */
+    if (typeof window.compartirArchivoConTexto === "function") {
+      window.compartirArchivoConTexto(ultima.nombre, ultima.blob, ultima.texto);
+      window.CB.shell.closeSheet();
+      return;
+    }
+    if (typeof window.compartirArchivo === "function") {
+      window.compartirArchivo(ultima.nombre, ultima.blob);
+      window.CB.shell.closeSheet();
+      return;
+    }
+    descargar();
+  }
+
+  window.CB.citacion = {
+    abrir: abrir, descargar: descargar, compartir: compartir,
+    texto: texto, dibujar: dibujar, listas: listas
+  };
+})();
+
+</script>
+<script>
 /* ===== js/features/reports.js ===== */
 /* =============================================================
    CoachBoard · features/reports.js
@@ -6120,6 +6617,11 @@ select{ appearance:none; -webkit-appearance:none;
       '<p class="hint">Aparece en la cabecera, en el marcador y en los documentos PDF.</p>' +
       '<button class="btn pri wide mt1" onclick="CB.settings.guardarClub()">Guardar nombre</button>' +
 
+      '<div class="section"><span class="eyebrow">Recordatorios</span></div>' +
+      '<p class="hint">' + resumenAvisos() + '</p>' +
+      '<button class="btn wide" onclick="CB.settings.avisos()">' + U.svg("bell") +
+        'Avisos de partidos y entrenos</button>' +
+
       '<div class="section"><span class="eyebrow">Datos</span></div>' +
       '<p class="hint">Todo se guarda en este dispositivo. Descarga una copia de vez en cuando y guárdala donde quieras.</p>' +
       '<button class="btn wide" onclick="CB.store.backup()">' + U.svg("download") + 'Descargar copia de seguridad</button>' +
@@ -6180,7 +6682,22 @@ select{ appearance:none; -webkit-appearance:none;
     ]);
   }
 
-  window.CB.settings = { open: open, guardarClub: guardarClub, ejemplo: ejemplo, guia: guia };
+  function resumenAvisos() {
+    var A = window.CB.avisos;
+    if (!A.soportado()) return "Los avisos solo suenan en la aplicación del móvil.";
+    var c = A.cfg();
+    if (!c.on) return "Desactivados.";
+    var n = A.lista().length;
+    return "Activados · " + (c.vispera ? "la víspera" : "sin aviso la víspera") +
+      (c.antes ? " y " + c.antes + " h antes" : "") +
+      " · " + n + (n === 1 ? " aviso en cola" : " avisos en cola");
+  }
+
+  function avisos() { window.CB.avisos.abrir(); }
+
+  window.CB.settings = {
+    open: open, guardarClub: guardarClub, ejemplo: ejemplo, guia: guia, avisos: avisos
+  };
 })();
 
 </script>
@@ -6215,6 +6732,10 @@ select{ appearance:none; -webkit-appearance:none;
 
     window.CB.shell.init();
     U.txt("topSub", S.club());
+
+    /* Al abrir se reponen los avisos: el calendario puede haber
+       cambiado desde la última vez. */
+    try { window.CB.avisos.programar(); } catch (e) { /* sin contenedor */ }
 
     /* Cada pantalla se refresca al entrar: así nunca se ve
        información vieja aunque se haya editado en otro sitio. */
